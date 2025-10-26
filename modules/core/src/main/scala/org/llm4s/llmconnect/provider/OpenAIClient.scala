@@ -15,10 +15,18 @@ import scala.jdk.CollectionConverters._
 import scala.util.Try
 
 /**
- * OpenAIClient implementation for both OpenAI and Azure OpenAI.
+ * LLMClient implementation supporting both OpenAI and Azure OpenAI services.
  *
- * This client supports both OpenAI's API and Azure's OpenAI service.
- * It handles message conversion, completion requests, and tool calls.
+ * Provides a unified interface for interacting with OpenAI's API and Azure's OpenAI service.
+ * Handles message conversion between llm4s format and OpenAI format, completion requests,
+ * streaming responses, and tool calling (function calling) capabilities.
+ *
+ * Uses Azure's OpenAI client library internally, which supports both direct OpenAI and
+ * Azure-hosted OpenAI endpoints.
+ *
+ * @param model the model identifier (e.g., "gpt-4", "gpt-3.5-turbo")
+ * @param client configured Azure OpenAI client instance
+ * @param config provider configuration containing context window and reserve completion settings
  */
 class OpenAIClient private (
   private val model: String,
@@ -26,7 +34,11 @@ class OpenAIClient private (
   private val config: ProviderConfig
 ) extends LLMClient {
 
-  /* * Constructor for OpenAI (non-Azure) */
+  /**
+   * Creates an OpenAI client for direct OpenAI API access.
+   *
+   * @param config OpenAI configuration with API key and base URL
+   */
   def this(config: OpenAIConfig) = this(
     config.model,
     new OpenAIClientBuilder()
@@ -36,7 +48,11 @@ class OpenAIClient private (
     config
   )
 
-  /** Constructor for Azure OpenAI */
+  /**
+   * Creates an OpenAI client for Azure OpenAI service.
+   *
+   * @param config Azure configuration with API key, endpoint, and API version
+   */
   def this(config: AzureConfig) = this(
     config.model,
     new OpenAIClientBuilder()
@@ -51,24 +67,7 @@ class OpenAIClient private (
     conversation: Conversation,
     options: CompletionOptions
   ): Result[Completion] = {
-    // Convert conversation to Azure format
-    val chatMessages = convertToOpenAIMessages(conversation)
-
-    // Create chat options
-    val chatOptions = new ChatCompletionsOptions(chatMessages)
-
-    // Set options
-    chatOptions.setTemperature(options.temperature.doubleValue())
-    options.maxTokens.foreach(mt => chatOptions.setMaxTokens(mt))
-    chatOptions.setPresencePenalty(options.presencePenalty.doubleValue())
-    chatOptions.setFrequencyPenalty(options.frequencyPenalty.doubleValue())
-    chatOptions.setTopP(options.topP.doubleValue())
-
-    // Add tools if specified
-    if (options.tools.nonEmpty) {
-      val toolRegistry = new ToolRegistry(options.tools)
-      AzureToolHelper.addToolsToOptions(toolRegistry, chatOptions)
-    }
+    val chatOptions = prepareChatOptions(conversation, options)
 
     // Add organization header if specified
     // Note: Azure SDK doesn't directly support adding custom headers to ChatCompletionsOptions
@@ -85,24 +84,7 @@ class OpenAIClient private (
     options: CompletionOptions = CompletionOptions(),
     onChunk: StreamedChunk => Unit
   ): Result[Completion] = {
-    // Convert conversation to Azure format
-    val chatMessages = convertToOpenAIMessages(conversation)
-
-    // Create chat options with streaming enabled
-    val chatOptions = new ChatCompletionsOptions(chatMessages)
-
-    // Set options
-    chatOptions.setTemperature(options.temperature.doubleValue())
-    options.maxTokens.foreach(mt => chatOptions.setMaxTokens(mt))
-    chatOptions.setPresencePenalty(options.presencePenalty.doubleValue())
-    chatOptions.setFrequencyPenalty(options.frequencyPenalty.doubleValue())
-    chatOptions.setTopP(options.topP.doubleValue())
-
-    // Add tools if specified
-    if (options.tools.nonEmpty) {
-      val toolRegistry = new ToolRegistry(options.tools)
-      AzureToolHelper.addToolsToOptions(toolRegistry, chatOptions)
-    }
+    val chatOptions = prepareChatOptions(conversation, options)
 
     // Create accumulator for building the final completion
     val accumulator = StreamingAccumulator.create()
@@ -149,6 +131,48 @@ class OpenAIClient private (
 
   override def getReserveCompletion(): Int = config.reserveCompletion
 
+  /**
+   * Prepares ChatCompletionsOptions from conversation and completion options.
+   *
+   * Converts llm4s conversation format to OpenAI ChatCompletionsOptions, applying temperature,
+   * token limits, penalties, and tools. Shared between complete() and streamComplete().
+   *
+   * @param conversation llm4s conversation to convert
+   * @param options completion options to apply
+   * @return configured ChatCompletionsOptions ready for API call
+   */
+  private def prepareChatOptions(conversation: Conversation, options: CompletionOptions): ChatCompletionsOptions = {
+    // Convert conversation to Azure format
+    val chatMessages = convertToOpenAIMessages(conversation)
+
+    // Create chat options
+    val chatOptions = new ChatCompletionsOptions(chatMessages)
+
+    // Set options
+    chatOptions.setTemperature(options.temperature.doubleValue())
+    options.maxTokens.foreach(mt => chatOptions.setMaxTokens(mt))
+    chatOptions.setPresencePenalty(options.presencePenalty.doubleValue())
+    chatOptions.setFrequencyPenalty(options.frequencyPenalty.doubleValue())
+    chatOptions.setTopP(options.topP.doubleValue())
+
+    // Add tools if specified
+    if (options.tools.nonEmpty) {
+      val toolRegistry = new ToolRegistry(options.tools)
+      AzureToolHelper.addToolsToOptions(toolRegistry, chatOptions)
+    }
+
+    chatOptions
+  }
+
+  /**
+   * Extracts tool call information from a streaming response delta.
+   *
+   * Parses the first tool call from the delta message, converting function call details
+   * into llm4s ToolCall format. Used during streaming to capture tool calling requests.
+   *
+   * @param delta streaming response message delta from OpenAI
+   * @return Some(ToolCall) if a function tool call is present, None otherwise
+   */
   private def extractStreamingToolCall(delta: ChatResponseMessage): Option[ToolCall] =
     Option(delta.getToolCalls).flatMap { toolCalls =>
       if (!toolCalls.isEmpty) {
@@ -170,6 +194,16 @@ class OpenAIClient private (
       } else None
     }
 
+  /**
+   * Converts llm4s Conversation to OpenAI ChatRequestMessage format.
+   *
+   * Transforms each message type (User, System, Assistant, Tool) into the corresponding
+   * OpenAI message format. Handles tool calls in assistant messages by converting them
+   * to ChatCompletionsFunctionToolCall objects.
+   *
+   * @param conversation llm4s conversation to convert
+   * @return ArrayList of ChatRequestMessage suitable for OpenAI API
+   */
   private def convertToOpenAIMessages(conversation: Conversation): java.util.ArrayList[ChatRequestMessage] = {
     val messages = new java.util.ArrayList[ChatRequestMessage]()
 
@@ -198,6 +232,15 @@ class OpenAIClient private (
     messages
   }
 
+  /**
+   * Converts OpenAI ChatCompletions response to llm4s Completion format.
+   *
+   * Extracts the first choice from the response and converts it to llm4s format,
+   * including content, tool calls, and token usage information.
+   *
+   * @param completions OpenAI API response
+   * @return llm4s Completion with all response data
+   */
   private def convertFromOpenAIFormat(completions: ChatCompletions): Completion = {
     val choice    = completions.getChoices.get(0)
     val message   = choice.getMessage
@@ -223,6 +266,15 @@ class OpenAIClient private (
     )
   }
 
+  /**
+   * Extracts tool calls from an OpenAI response message.
+   *
+   * Parses function tool calls from the message and converts them to llm4s ToolCall format.
+   * Returns empty sequence if no tool calls are present.
+   *
+   * @param message OpenAI response message potentially containing tool calls
+   * @return sequence of ToolCall objects, empty if no tool calls present
+   */
   private def extractToolCalls(message: ChatResponseMessage): Seq[ToolCall] =
     Option(message.getToolCalls)
       .map(_.asScala.toSeq.collect { case ftc: ChatCompletionsFunctionToolCall =>
@@ -235,12 +287,29 @@ class OpenAIClient private (
       .getOrElse(Seq.empty)
 }
 
+/**
+ * Factory methods for creating OpenAIClient instances.
+ *
+ * Provides safe construction of OpenAI clients with error handling via Result type.
+ */
 object OpenAIClient {
   import org.llm4s.types.TryOps
 
+  /**
+   * Creates an OpenAI client for direct OpenAI API access.
+   *
+   * @param config OpenAI configuration with API key, model, and base URL
+   * @return Right(OpenAIClient) on success, Left(LLMError) if client creation fails
+   */
   def create(config: OpenAIConfig): Result[OpenAIClient] =
     Try(new OpenAIClient(config)).toResult
 
+  /**
+   * Creates an OpenAI client for Azure OpenAI service.
+   *
+   * @param config Azure configuration with API key, model, endpoint, and API version
+   * @return Right(OpenAIClient) on success, Left(LLMError) if client creation fails
+   */
   def create(config: AzureConfig): Result[OpenAIClient] =
     Try(new OpenAIClient(config)).toResult
 }

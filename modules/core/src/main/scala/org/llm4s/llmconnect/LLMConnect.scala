@@ -55,6 +55,6 @@ object LLMConnect {
 
   // Convenience: build client from environment/config using typed ProviderConfig loader
   def fromEnv(): Result[LLMClient] =
-    org.llm4s.config.ConfigReader.Provider().flatMap(getClient)
+    ConfigReader.Provider().flatMap(getClient)
 
 }
