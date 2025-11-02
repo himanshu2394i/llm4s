@@ -39,7 +39,7 @@ import org.llm4s.samples.util.ConfigValidator
  * == Supported Providers ==
  * - '''OpenAI''': `LLM_MODEL=openai/gpt-4o`, requires `OPENAI_API_KEY`
  * - '''Anthropic''': `LLM_MODEL=anthropic/claude-3-5-sonnet-latest`, requires `ANTHROPIC_API_KEY`
- * - '''Azure''': `LLM_MODEL=azure/<deployment>`, requires `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT`
+ * - '''Azure''': `LLM_MODEL=azure/<deployment>`, requires `AZURE_API_KEY` and `AZURE_API_BASE`
  * - '''Ollama''': `LLM_MODEL=ollama/llama2`, no API key needed (local)
  *
  * == Troubleshooting ==
@@ -81,7 +81,7 @@ object BasicLLMCallingExample {
 
     // Execute the example with validation and error handling
     val result = for {
-      // Validate environment variables before attempting to connect
+      // Validate configuration before attempting to connect
       _ <- ConfigValidator.validateEnvironment()
       // Get LLM client from environment variables
       client <- LLMConnect.fromEnv()
@@ -110,7 +110,7 @@ object BasicLLMCallingExample {
     result.fold(
       err => {
         println(err.formatted)
-        println("\n💡 Tip: Make sure your environment variables are set correctly.")
+        println("\n💡 Tip: Make sure your environment variables or application.conf values are set correctly.")
         println("For more help, see: https://github.com/llm4s/llm4s#getting-started")
         sys.exit(1)
       },

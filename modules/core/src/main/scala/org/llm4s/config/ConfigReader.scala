@@ -91,10 +91,13 @@ object ConfigReader {
         """
           |
           |Set your Azure OpenAI API key:
-          |  export AZURE_OPENAI_API_KEY=...
+          |  export AZURE_API_KEY=...
           |
           |You'll also need:
-          |  export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
+          |  export AZURE_API_BASE=https://<resource>.openai.azure.com/
+          |
+          |Optionally:
+          |  export AZURE_API_VERSION=2025-01-01-preview
           |
           |See: https://github.com/llm4s/llm4s#azure-setup""".stripMargin
 
@@ -102,10 +105,13 @@ object ConfigReader {
         """
           |
           |Set your Azure OpenAI endpoint:
-          |  export AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
+          |  export AZURE_API_BASE=https://<resource>.openai.azure.com/
           |
           |You'll also need:
-          |  export AZURE_OPENAI_API_KEY=...
+          |  export AZURE_API_KEY=...
+          |
+          |Optionally:
+          |  export AZURE_API_VERSION=2025-01-01-preview
           |
           |See: https://github.com/llm4s/llm4s#azure-setup""".stripMargin
 

@@ -174,25 +174,20 @@ class OpenAIClient private (
    * @return Some(ToolCall) if a function tool call is present, None otherwise
    */
   private def extractStreamingToolCall(delta: ChatResponseMessage): Option[ToolCall] =
-    Option(delta.getToolCalls).flatMap { toolCalls =>
-      if (!toolCalls.isEmpty) {
-        val tc = toolCalls.get(0)
-        tc match {
-          case ftc: ChatCompletionsFunctionToolCall =>
-            Some(
-              ToolCall(
-                id = ftc.getId,
-                name = Option(ftc.getFunction).map(_.getName).getOrElse(""),
-                arguments = Option(ftc.getFunction)
-                  .flatMap(f => Option(f.getArguments))
-                  .map(args => ujson.read(args))
-                  .getOrElse(ujson.Null)
-              )
-            )
-          case _ => None
-        }
-      } else None
-    }
+    for {
+      toolCalls <- Option(delta.getToolCalls)
+      tc        <- toolCalls.asScala.headOption
+      result <- Option(tc).collect { case ftc: ChatCompletionsFunctionToolCall =>
+        ToolCall(
+          id = ftc.getId,
+          name = Option(ftc.getFunction).map(_.getName).getOrElse(""),
+          arguments = Option(ftc.getFunction)
+            .flatMap(f => Option(f.getArguments))
+            .map(args => ujson.read(args))
+            .getOrElse(ujson.Null)
+        )
+      }
+    } yield result
 
   /**
    * Converts llm4s Conversation to OpenAI ChatRequestMessage format.
@@ -301,7 +296,7 @@ object OpenAIClient {
    * @param config OpenAI configuration with API key, model, and base URL
    * @return Right(OpenAIClient) on success, Left(LLMError) if client creation fails
    */
-  def create(config: OpenAIConfig): Result[OpenAIClient] =
+  def apply(config: OpenAIConfig): Result[OpenAIClient] =
     Try(new OpenAIClient(config)).toResult
 
   /**
@@ -310,6 +305,6 @@ object OpenAIClient {
    * @param config Azure configuration with API key, model, endpoint, and API version
    * @return Right(OpenAIClient) on success, Left(LLMError) if client creation fails
    */
-  def create(config: AzureConfig): Result[OpenAIClient] =
+  def apply(config: AzureConfig): Result[OpenAIClient] =
     Try(new OpenAIClient(config)).toResult
 }
