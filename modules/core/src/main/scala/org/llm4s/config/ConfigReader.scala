@@ -20,13 +20,143 @@ trait ConfigReader {
   def get(key: String): Option[String]
   def getOrElse(key: String, default: String): String = get(key).getOrElse(default)
 
+  /**
+   * Requires a configuration value to be present, returning a helpful error if missing.
+   *
+   * Provides context-aware error messages with provider-specific setup instructions,
+   * making it easier for users to identify and fix configuration issues.
+   *
+   * @param key the configuration key to require
+   * @return Right(value) if present and non-empty, Left(NotFoundError) with helpful guidance if missing
+   */
   def require(key: String): Result[String] =
-    get(key).filter(_.trim.nonEmpty).toRight(NotFoundError(s"Missing: $key", key))
+    get(key).filter(_.trim.nonEmpty).toRight(ConfigReader.createMissingConfigError(key))
 
   def getPath(path: String): Option[String] = get(path)
 }
 
 object ConfigReader {
+
+  /**
+   * Creates a helpful NotFoundError with context-aware guidance for missing configuration keys.
+   *
+   * Provides actionable error messages with provider-specific setup instructions,
+   * example values, and documentation links to help users quickly resolve configuration issues.
+   *
+   * @param key the configuration key that is missing
+   * @return NotFoundError with helpful guidance
+   */
+  private[config] def createMissingConfigError(key: String): NotFoundError = {
+    import ConfigKeys._
+
+    val helpText = key match {
+      case LLM_MODEL =>
+        """
+          |
+          |Set the LLM provider and model to use.
+          |
+          |Examples:
+          |  export LLM_MODEL=openai/gpt-4o
+          |  export LLM_MODEL=anthropic/claude-3-5-sonnet-latest
+          |  export LLM_MODEL=azure/<your-deployment-name>
+          |  export LLM_MODEL=ollama/llama2
+          |
+          |See: https://github.com/llm4s/llm4s#configuration""".stripMargin
+
+      case OPENAI_API_KEY =>
+        """
+          |
+          |Get your OpenAI API key from: https://platform.openai.com/api-keys
+          |Then set it with:
+          |  export OPENAI_API_KEY=sk-...
+          |
+          |Or in application.conf:
+          |  llm4s.openai.apiKey = "sk-..."
+          |
+          |See: https://github.com/llm4s/llm4s#openai-setup""".stripMargin
+
+      case ANTHROPIC_API_KEY =>
+        """
+          |
+          |Get your Anthropic API key from: https://console.anthropic.com/
+          |Then set it with:
+          |  export ANTHROPIC_API_KEY=sk-ant-...
+          |
+          |Or in application.conf:
+          |  llm4s.anthropic.apiKey = "sk-ant-..."
+          |
+          |See: https://github.com/llm4s/llm4s#anthropic-setup""".stripMargin
+
+      case AZURE_API_KEY =>
+        """
+          |
+          |Set your Azure OpenAI API key:
+          |  export AZURE_API_KEY=...
+          |
+          |You'll also need:
+          |  export AZURE_API_BASE=https://<resource>.openai.azure.com/
+          |
+          |Optionally:
+          |  export AZURE_API_VERSION=2025-01-01-preview
+          |
+          |See: https://github.com/llm4s/llm4s#azure-setup""".stripMargin
+
+      case AZURE_API_BASE =>
+        """
+          |
+          |Set your Azure OpenAI endpoint:
+          |  export AZURE_API_BASE=https://<resource>.openai.azure.com/
+          |
+          |You'll also need:
+          |  export AZURE_API_KEY=...
+          |
+          |Optionally:
+          |  export AZURE_API_VERSION=2025-01-01-preview
+          |
+          |See: https://github.com/llm4s/llm4s#azure-setup""".stripMargin
+
+      case LANGFUSE_PUBLIC_KEY | LANGFUSE_SECRET_KEY =>
+        """
+          |
+          |Get your Langfuse keys from: https://cloud.langfuse.com/
+          |Then set them with:
+          |  export LANGFUSE_PUBLIC_KEY=pk-lf-...
+          |  export LANGFUSE_SECRET_KEY=sk-lf-...
+          |
+          |See: https://github.com/llm4s/llm4s#tracing""".stripMargin
+
+      case VOYAGE_API_KEY =>
+        """
+          |
+          |Get your Voyage AI API key from: https://www.voyageai.com/
+          |Then set it with:
+          |  export VOYAGE_API_KEY=...
+          |
+          |See: https://github.com/llm4s/llm4s#embeddings""".stripMargin
+
+      case EMBEDDING_PROVIDER =>
+        """
+          |
+          |Set the embeddings provider to use:
+          |  export EMBEDDING_PROVIDER=openai
+          |  export EMBEDDING_PROVIDER=voyage
+          |
+          |See: https://github.com/llm4s/llm4s#embeddings""".stripMargin
+
+      case _ =>
+        // Generic guidance for unknown keys
+        s"""
+           |
+           |Set the environment variable:
+           |  export $key=<value>
+           |
+           |Or in application.conf (check keyMapping for the path)
+           |
+           |See: https://github.com/llm4s/llm4s#configuration""".stripMargin
+    }
+
+    NotFoundError(s"Missing required configuration: $key$helpText", key)
+  }
 
   def apply(map: Map[String, String]): ConfigReader = new ConfigReader {
     override def get(key: String): Option[String] = map.get(key)

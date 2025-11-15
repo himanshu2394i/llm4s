@@ -25,8 +25,8 @@ import org.slf4j.LoggerFactory
  *
  * # Azure OpenAI
  * export LLM_MODEL=azure/your-deployment-name
- * export AZURE_OPENAI_API_KEY=your-key
- * export AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+ * export AZURE_API_KEY=your-key
+ * export AZURE_API_BASE=https://your-resource.openai.azure.com/
  *
  * sbt "samples/runMain org.llm4s.samples.context.tokens.TokenWindowExample"
  * ```
