@@ -51,12 +51,38 @@ case class ToolMessage(
 ```scala
 case class Conversation(messages: Seq[Message]) {
   // Add a message and return a new Conversation
-  def addMessage(message: Message): Conversation = 
+  def addMessage(message: Message): Conversation =
     Conversation(messages :+ message)
-    
+
   // Add multiple messages and return a new Conversation
-  def addMessages(newMessages: Seq[Message]): Conversation = 
+  def addMessages(newMessages: Seq[Message]): Conversation =
     Conversation(messages ++ newMessages)
+
+  // Get the last message (if any)
+  def lastMessage: Option[Message]
+
+  // Get count of messages
+  def messageCount: Int
+
+  // Filter messages by role
+  def filterByRole(role: MessageRole): Seq[Message]
+}
+
+object Conversation {
+  // Create conversation from system and user prompts (most common pattern)
+  def fromPrompts(systemPrompt: String, userPrompt: String): Result[Conversation]
+
+  // Create single user message conversation
+  def userOnly(prompt: String): Result[Conversation]
+
+  // Create single system message conversation
+  def systemOnly(prompt: String): Result[Conversation]
+
+  // Create conversation from validated messages
+  def create(messages: Message*): Result[Conversation]
+
+  // Create empty conversation
+  def empty(): Conversation
 }
 ```
 
@@ -501,40 +527,46 @@ val client = LLM.client(
   )
 )
 
-// Create a conversation
-val conversation = Conversation(Seq(
-  SystemMessage("You are a helpful assistant. You will talk like a pirate."),
-  UserMessage("Please write a scala function to add two integers")
-))
-
-// Get a completion
-val result = client.complete(conversation)
+// Create a conversation using convenience method (recommended)
+val result = for {
+  conversation <- Conversation.fromPrompts(
+    "You are a helpful assistant. You will talk like a pirate.",
+    "Please write a scala function to add two integers"
+  )
+  completion <- client.complete(conversation)
+} yield completion
 
 result match {
-  case Right(completion) => 
+  case Right(completion) =>
     println(s"Assistant: ${completion.message.content}")
-    
-  case Left(error) => 
+
+  case Left(error) =>
     println(s"Error: $error")
 }
+
+// Alternative: Manual construction
+val manualConversation = Conversation(Seq(
+  SystemMessage("You are a helpful assistant."),
+  UserMessage("What is 2+2?")
+))
 ```
 
 ### Tool Calling Example
 
 ```scala
-// Create a conversation asking about weather
-val weatherConversation = Conversation(Seq(
-  UserMessage("What's the weather like in Paris?")
-))
+// Create a single-user-message conversation (using convenience method)
+val conversationResult = Conversation.userOnly("What's the weather like in Paris?")
 
 // Use the existing weather tool
 val toolRegistry = new ToolRegistry(Seq(WeatherTool.tool))
 
 // Get completion with tools
-val weatherResult = client.complete(
-  weatherConversation,
-  CompletionOptions(tools = Seq(WeatherTool.tool))
-)
+val weatherResult = conversationResult.flatMap { weatherConversation =>
+  client.complete(
+    weatherConversation,
+    CompletionOptions(tools = Seq(WeatherTool.tool))
+  )
+}
 
 // Handle the completion with potential tool calls
 weatherResult match {
