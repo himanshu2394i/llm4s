@@ -183,7 +183,7 @@ class OpenAIClient private (
           name = Option(ftc.getFunction).map(_.getName).getOrElse(""),
           arguments = Option(ftc.getFunction)
             .flatMap(f => Option(f.getArguments))
-            .map(args => ujson.read(args))
+            .flatMap(args => Try(ujson.read(args)).toOption)
             .getOrElse(ujson.Null)
         )
       }
@@ -199,6 +199,7 @@ class OpenAIClient private (
    * @param conversation llm4s conversation to convert
    * @return ArrayList of ChatRequestMessage suitable for OpenAI API
    */
+  // TODO: Refactor to use idiomatic Scala collections with folding instead of mutable java.util.ArrayList
   private def convertToOpenAIMessages(conversation: Conversation): java.util.ArrayList[ChatRequestMessage] = {
     val messages = new java.util.ArrayList[ChatRequestMessage]()
 
@@ -272,12 +273,13 @@ class OpenAIClient private (
    */
   private def extractToolCalls(message: ChatResponseMessage): Seq[ToolCall] =
     Option(message.getToolCalls)
-      .map(_.asScala.toSeq.collect { case ftc: ChatCompletionsFunctionToolCall =>
-        ToolCall(
-          id = ftc.getId,
-          name = ftc.getFunction.getName,
-          arguments = ujson.read(ftc.getFunction.getArguments)
-        )
+      .map(_.asScala.toSeq.collect {
+        case ftc: ChatCompletionsFunctionToolCall if Try(ujson.read(ftc.getFunction.getArguments)).isSuccess =>
+          ToolCall(
+            id = ftc.getId,
+            name = ftc.getFunction.getName,
+            arguments = Try(ujson.read(ftc.getFunction.getArguments)).getOrElse(ujson.Null)
+          )
       })
       .getOrElse(Seq.empty)
 }
