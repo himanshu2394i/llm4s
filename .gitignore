@@ -8,7 +8,6 @@ project/.bloop/
 /.bsp/
 target/
 .aider*
-CLAUDE.md
 .metals
 .vscode
 **/.claude/settings.local.json
