@@ -46,6 +46,17 @@ class ConversationConvenienceMethodsSpec extends AnyFlatSpec with Matchers {
     result.isLeft shouldBe true
   }
 
+  it should "preserve leading/trailing whitespace in valid prompts" in {
+    val result = Conversation.fromPrompts("  System prompt  ", "  User prompt  ")
+
+    result.isRight shouldBe true
+    result.foreach { conv =>
+      conv.messageCount should be(2)
+      conv.messages(0).content should be("  System prompt  ")
+      conv.messages(1).content should be("  User prompt  ")
+    }
+  }
+
   // --- Conversation.userOnly tests ---
 
   "Conversation.userOnly" should "create a valid conversation with single user message" in {
@@ -70,6 +81,16 @@ class ConversationConvenienceMethodsSpec extends AnyFlatSpec with Matchers {
     result.isLeft shouldBe true
   }
 
+  it should "preserve leading/trailing whitespace in valid prompts" in {
+    val result = Conversation.userOnly("  User prompt  ")
+
+    result.isRight shouldBe true
+    result.foreach { conv =>
+      conv.messageCount should be(1)
+      conv.messages(0).content should be("  User prompt  ")
+    }
+  }
+
   // --- Conversation.systemOnly tests ---
 
   "Conversation.systemOnly" should "create a valid conversation with single system message" in {
@@ -92,6 +113,16 @@ class ConversationConvenienceMethodsSpec extends AnyFlatSpec with Matchers {
     val result = Conversation.systemOnly("   ")
 
     result.isLeft shouldBe true
+  }
+
+  it should "preserve leading/trailing whitespace in valid prompts" in {
+    val result = Conversation.systemOnly("  System prompt  ")
+
+    result.isRight shouldBe true
+    result.foreach { conv =>
+      conv.messageCount should be(1)
+      conv.messages(0).content should be("  System prompt  ")
+    }
   }
 
   // --- Conversation.lastMessage tests ---

@@ -15,13 +15,21 @@ import upickle.default.{ macroRW, ReadWriter => RW }
 case class Conversation(messages: Seq[Message]) {
 
   /**
-   * Add a message and return a new Conversation
+   * Add a message and return a new Conversation.
+   * This operation is immutable - the original conversation is unchanged.
+   *
+   * @param message The message to add
+   * @return A new Conversation containing all previous messages plus the new one
    */
   def addMessage(message: Message): Conversation =
     Conversation(messages :+ message)
 
   /**
-   * Add multiple messages and return a new Conversation
+   * Add multiple messages and return a new Conversation.
+   * This operation is immutable - the original conversation is unchanged.
+   *
+   * @param newMessages The messages to add
+   * @return A new Conversation containing all previous messages plus the new ones
    */
   def addMessages(newMessages: Seq[Message]): Conversation =
     Conversation(messages ++ newMessages)
@@ -38,7 +46,7 @@ case class Conversation(messages: Seq[Message]) {
    *
    * @return Number of messages in the conversation
    */
-  def messageCount: Int = messages.length
+  def messageCount: Int = messages.size
 
   /**
    * Filter messages by role.
@@ -75,7 +83,16 @@ object Conversation {
 
   /**
    * Create a conversation from system and user prompts (most common pattern).
-   * Validates both messages.
+   * Validates both messages (rejects empty or whitespace-only content).
+   *
+   * @example
+   * {{{
+   * val result = Conversation.fromPrompts(
+   *   "You are a helpful assistant",
+   *   "What is 2+2?"
+   * )
+   * // Returns Right(Conversation(...)) on success
+   * }}}
    *
    * @param systemPrompt The system message content
    * @param userPrompt The user message content
@@ -86,7 +103,13 @@ object Conversation {
 
   /**
    * Create a single-user-message conversation (for simple queries).
-   * Validates the message.
+   * Validates the message (rejects empty or whitespace-only content).
+   *
+   * @example
+   * {{{
+   * val result = Conversation.userOnly("What is the capital of France?")
+   * // Returns Right(Conversation(List(UserMessage(...)))) on success
+   * }}}
    *
    * @param prompt The user message content
    * @return Result containing the validated conversation or validation error
@@ -96,7 +119,15 @@ object Conversation {
 
   /**
    * Create a system-only conversation (for system prompts).
-   * Validates the message.
+   * Validates the message (rejects empty or whitespace-only content).
+   * Useful for creating an initial conversation to build from with addMessage/addMessages.
+   *
+   * @example
+   * {{{
+   * val result = Conversation.systemOnly("You are a helpful assistant")
+   *   .map(_.addMessage(UserMessage("Hello")))
+   * // Returns Right(Conversation(List(SystemMessage(...), UserMessage(...)))) on success
+   * }}}
    *
    * @param prompt The system message content
    * @return Result containing the validated conversation or validation error
