@@ -779,6 +779,7 @@ Our **Google Summer of Code (GSoC) 2025** contributors have actively documented 
 - 📝 Articles:
   - [Cracking the Code: My GSoC 2025 Story](https://shubhams-gsoc-journey.hashnode.dev/cracking-the-code-my-gsoc-2025-story)
   - [My Scala Sprint: JVM to Poland Insights](https://shubhams-gsoc-journey.hashnode.dev/my-scala-sprint-jvm-to-poland-insights)
+  - [ GSoC Final Report URL](https://shubhams-gsoc-journey.hashnode.dev/my-gsoc-2025-final-report-tracing-the-road-to-multi-agent-reliability)
 
 ## Maintainers
 
