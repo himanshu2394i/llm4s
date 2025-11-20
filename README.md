@@ -11,25 +11,23 @@
 <h4 align="center">
     <img src="docs/image_assets/llm4s_logo.png" width="100pt" alt="LLM4S Logo">
 </h4>
-<br>
 
 ## ⭐ Stars Over Time
 
 [![Star History Chart](https://api.star-history.com/svg?repos=llm4s/llm4s&type=Date)](https://star-history.com/#llm4s/llm4s&Date)
 
-<br>
+
+
 ## Project Momentum
 
 ![GitHub Repo stars](https://img.shields.io/github/stars/llm4s/llm4s?style=for-the-badge&label=Stars&color=yellow)
 ![GitHub forks](https://img.shields.io/github/forks/llm4s/llm4s?style=for-the-badge&label=Forks&color=green)
 ![GitHub contributors](https://img.shields.io/github/contributors/llm4s/llm4s?style=for-the-badge&label=Contributors&color=blue)
 ![GitHub issues](https://img.shields.io/github/issues/llm4s/llm4s?style=for-the-badge&label=Open%20Issues&color=purple)
-`<br>`
 
 ## Overview
 
 LLM4S provides a simple, robust, and scalable framework for building LLM applications in Scala. While most LLM work is done in Python, we believe that Scala offers a fundamentally better foundation for building reliable, maintainable AI-powered applications.
-`<br>`
 
 <p align="center">
   <img src="docs/image_assets/llm4s-overview.jpeg" alt="LLM4S Overview" width="600"/>
@@ -250,7 +248,7 @@ The comprehensive roadmap covers:
 
 ### High-Level Goals
 
-- [ ] Single API access to multiple LLM providers (like LiteLLM) — **llmconnect** ✅ *Complete*
+- [ ] Single API access to multiple LLM providers (like LiteLLM) - **llmconnect** ✅ *Complete*
 - [ ] Comprehensive toolchain for building LLM apps (LangChain/LangGraph equivalent)
   - [x] Tool calling ✅ *Complete*
   - [ ] RAG search & retrieval 🚧 *In Progress (70%)*
@@ -261,12 +259,12 @@ The comprehensive roadmap covers:
 - [ ] Tokenization utilities (Scala port of tiktoken) ✅ *Complete*
 - [ ] Examples for all supported modalities and workflows ✅ *Complete*
 - [ ] Stable platform with extensive test coverage 🚧 *In Progress*
-- [ ] Scala Coding SWE Agent — perform SWE Bench–type tasks on Scala codebases
+- [ ] Scala Coding SWE Agent - perform SWE Bench–type tasks on Scala codebases
   - [ ] Code maps, code generation, and library templates
 
 ## Tool Calling
 
-Tool calling is a critical integration — designed to work seamlessly with **multi-provider support** and **agent frameworks**.
+Tool calling is a critical integration - designed to work seamlessly with **multi-provider support** and **agent frameworks**.
 We use ScalaMeta to auto-generate tool definitions, support dynamic mapping, and run in **secure execution environments**.
 
 Tools can run:
@@ -305,7 +303,7 @@ Tools run in a protected Docker container environment to prevent accidental syst
 
 ## Comprehensive Tracing & Observability
 
-Tracing isn’t just for debugging — it’s the backbone of understanding model behavior.LLM4S’s observability layer includes:
+Tracing isn’t just for debugging - it’s the backbone of understanding model behavior.LLM4S’s observability layer includes:
 
 - Detailed token usage reporting
 - Multi-backend trace output (Langfuse, console, none)
@@ -521,7 +519,7 @@ Stay hands-on with **LLM4S**! Join us for interactive **mob programming** sessio
 
 | Date                                           | Session Title                                             | Description                                                                                                                                                                                                                                                                                                                                               | Location                            | Hosts                         | Details URL                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Featured In                                                 |
 | ---------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| **20-Jul-2025 onwards (Weekly Sundays)** | 🗓️ LLM4S Dev Hour — Weekly Live Coding & Collaboration | A weekly **mob programming** session where we code, debug, and learn together — open to all! `<br>`📌 *Updates are shared by the host in the `#llm4s-dev-hour` Discord channel after each session.  [Weekly changing Luma invite link](https://luma.com/calendar/cal-Zd9BLb5jbZewxLA) (for scheduling in your calender)* | Online, London, UK (9am local time) | Kannupriya Kalra, Rory Graves | [LinkedIn](https://www.linkedin.com/posts/kannupriyakalra_ai-llms-scala-activity-7352669046288384000-av_n) `<br>` [Reddit1](https://www.reddit.com/r/scala/comments/1m4oxf6/llm4s_dev_hour_sundays_9am_london_time) `<br>` [Reddit2](https://www.reddit.com/r/scala/comments/1o6mkol/llm4s_dev_hour_weekly_live_coding_collaboration/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button) `<br>` [Bluesky](https://bsky.app/profile/kannupriyakalra.bsky.social/post/3lufjgszijk2o) `<br>` [Mastodon](https://functional.cafe/@kannupriyakalra/114885664201722837) `<br>` [X/Twitter](https://x.com/KannupriyaKalra/status/1946915693644890537) | [Scala Times – Issue #537](https://scalatimes.com/15edab7583) |
+| **20-Jul-2025 onwards (Weekly Sundays)** | 🗓️ LLM4S Dev Hour - Weekly Live Coding & Collaboration | A weekly **mob programming** session where we code, debug, and learn together - open to all! <br><br> 📌 *Updates are shared by the host in the `#llm4s-dev-hour` Discord channel after each session.  [Weekly changing Luma invite link](https://luma.com/calendar/cal-Zd9BLb5jbZewxLA) (for scheduling in your calender)* | Online, London, UK (9am local time) | Kannupriya Kalra, Rory Graves | [LinkedIn](https://www.linkedin.com/posts/kannupriyakalra_ai-llms-scala-activity-7352669046288384000-av_n) <br><br> [Reddit1](https://www.reddit.com/r/scala/comments/1m4oxf6/llm4s_dev_hour_sundays_9am_london_time) <br><br> [Reddit2](https://www.reddit.com/r/scala/comments/1o6mkol/llm4s_dev_hour_weekly_live_coding_collaboration/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button) <br><br> [Bluesky](https://bsky.app/profile/kannupriyakalra.bsky.social/post/3lufjgszijk2o) <br><br> [Mastodon](https://functional.cafe/@kannupriyakalra/114885664201722837) <br><br> [X/Twitter](https://x.com/KannupriyaKalra/status/1946915693644890537) | [Scala Times – Issue #537](https://scalatimes.com/15edab7583) |
 
 ## 📢 Talks & Presentations
 
@@ -617,7 +615,7 @@ To know everything about GSoC and how it works, check out this talk:
 To learn about the experience of GSoC contributors of LLM4S, check out their blogs in the section below.
 
 📚 **Explore Past GSoC Projects with Scala Center:** [https://www.gsocorganizations.dev/organization/scala-center/](https://www.gsocorganizations.dev/organization/scala-center/)
-This page includes detailed information on all GSoC projects with Scala Center from past years — including project descriptions, code repositories, contributor blogs, and mentor details.
+This page includes detailed information on all GSoC projects with Scala Center from past years - including project descriptions, code repositories, contributor blogs, and mentor details.
 
 ### 👥 GSoC Contributor Onboarding Resources
 
@@ -680,15 +678,15 @@ Feel free to reach out to the contributors or mentors listed for any guidance or
 
 ## 🚧 Behind the Build: Blogs & Series
 
-We’ve got exciting news to share — **Scalac**, one of the leading Scala development companies, has officially partnered with **LLM4S** for a dedicated **AI-focused blog series**!
+We’ve got exciting news to share - **Scalac**, one of the leading Scala development companies, has officially partnered with **LLM4S** for a dedicated **AI-focused blog series**!
 
-This collaboration was initiated after our talk at **Functional World 2025**, and it’s now evolving into a full-fledged multi-part series and an upcoming eBook hosted on Scalac’s platform. The series will combine practical Scala code, GenAI architecture, and reflections from the LLM4S team — making it accessible for Scala developers everywhere who want to build with LLMs.
+This collaboration was initiated after our talk at **Functional World 2025**, and it’s now evolving into a full-fledged multi-part series and an upcoming eBook hosted on Scalac’s platform. The series will combine practical Scala code, GenAI architecture, and reflections from the LLM4S team - making it accessible for Scala developers everywhere who want to build with LLMs.
 
 📝 The first post is already drafted and under review by the Scalac editorial team. We’re working together to ensure this content is both technically insightful and visually engaging.
 
 > 🎉 Thanks to Matylda Kamińska, Rafał Kruczek, and the Scalac marketing team for this opportunity and collaboration!
 
-Stay tuned — the series will be published soon on [scalac.io/blog](https://scalac.io/blog/), and we’ll link it here as it goes live.
+Stay tuned - the series will be published soon on [scalac.io/blog](https://scalac.io/blog/), and we’ll link it here as it goes live.
 
 <br>
 
@@ -727,7 +725,7 @@ Our **Google Summer of Code (GSoC) 2025** contributors have actively documented 
 | Contributor                       | Blog(s)                                                                                                                                                                                                                               | Project                   |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | **Elvan Konukseven**        | [elvankonukseven.com/blog](https://www.elvankonukseven.com/blog)                                                                                                                                                                         | Agentic Toolkit for LLMs  |
-| **Gopi Trinadh Maddikunta** | [Main Blog](https://gopitrinadh.site/blog) `<br>` [Scala at Light Speed – Part 1](https://gopitrinadh.site/scala-at-lightspeed-part1/) `<br>` [Scala at Light Speed – Part 2](https://gopitrinadh.site/scala-at-light-speed-gsoc-part2/) | RAG in a Box              |
+| **Gopi Trinadh Maddikunta** | [Main Blog](https://gopitrinadh.site/blog) <br> [Scala at Light Speed – Part 1](https://gopitrinadh.site/scala-at-lightspeed-part1/) <br> [Scala at Light Speed – Part 2](https://gopitrinadh.site/scala-at-light-speed-gsoc-part2/) | RAG in a Box              |
 | **Anshuman Awasthi**        | [Anshuman&#39;s GSoC Journey](https://awesomegsoc.hashnode.dev/)                                                                                                                                                                         | Multimodal LLM Support    |
 | **Shubham Vishwakarma**     | [Cracking the Code: My GSoC 2025 Story](https://shubhams-gsoc-journey.hashnode.dev/cracking-the-code-my-gsoc-2025-story)                                                                                                                 | Tracing and Observability |
 
