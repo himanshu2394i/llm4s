@@ -7,6 +7,8 @@ import org.scalatest.matchers.should.Matchers
 
 class ShellToolsSpec extends AnyFlatSpec with Matchers {
 
+  private val isWindows: Boolean = System.getProperty("os.name").toLowerCase.contains("win")
+
   "ShellConfig" should "allow configured commands" in {
     val config = ShellConfig(allowedCommands = Seq("ls", "cat", "echo"))
 
@@ -72,6 +74,7 @@ class ShellToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   "ShellTool" should "execute allowed commands" in {
+    assume(!isWindows, "Unix shell commands not available on Windows")
     val config = ShellConfig(allowedCommands = Seq("echo", "pwd"))
     val tool   = ShellTool.create(config)
 
@@ -85,6 +88,7 @@ class ShellToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "reject non-allowed commands" in {
+    assume(!isWindows, "Unix shell commands not available on Windows")
     val config = ShellConfig(allowedCommands = Seq("ls"))
     val tool   = ShellTool.create(config)
 
@@ -96,6 +100,7 @@ class ShellToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "capture stderr" in {
+    assume(!isWindows, "Unix shell commands not available on Windows")
     val config = ShellConfig(allowedCommands = Seq("ls"))
     val tool   = ShellTool.create(config)
 
@@ -109,6 +114,7 @@ class ShellToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "respect timeout" in {
+    assume(!isWindows, "Unix shell commands not available on Windows")
     val config = ShellConfig(allowedCommands = Seq("sleep"), timeoutMs = 100)
     val tool   = ShellTool.create(config)
 
@@ -122,6 +128,7 @@ class ShellToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "use configured working directory" in {
+    assume(!isWindows, "Unix shell commands not available on Windows")
     val config = ShellConfig(allowedCommands = Seq("pwd"), workingDirectory = Some("/tmp"))
     val tool   = ShellTool.create(config)
 
@@ -136,6 +143,7 @@ class ShellToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "truncate large output" in {
+    assume(!isWindows, "Unix shell commands not available on Windows")
     val config = ShellConfig(allowedCommands = Seq("yes"), maxOutputSize = 100, timeoutMs = 100)
     val tool   = ShellTool.create(config)
 

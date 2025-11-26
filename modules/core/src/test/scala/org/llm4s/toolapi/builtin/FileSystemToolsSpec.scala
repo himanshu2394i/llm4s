@@ -9,14 +9,18 @@ import java.nio.file.{ Files, Paths }
 
 class FileSystemToolsSpec extends AnyFlatSpec with Matchers {
 
-  // Use a specific allowed path for all tests to avoid /var blocking
+  private val isWindows: Boolean = System.getProperty("os.name").toLowerCase.contains("win")
+
+  // Use system temp directory for cross-platform compatibility
   private val testDir = {
-    val dir = Paths.get("/tmp/llm4s-test-" + System.currentTimeMillis())
+    val tempRoot = System.getProperty("java.io.tmpdir")
+    val dir      = Paths.get(tempRoot, "llm4s-test-" + System.currentTimeMillis())
     Files.createDirectories(dir)
     dir
   }
 
   "FileConfig" should "block system paths by default" in {
+    assume(!isWindows, "Unix system paths not available on Windows")
     val config = FileConfig()
 
     config.isPathAllowed(Paths.get("/etc/passwd")) shouldBe false
@@ -27,6 +31,7 @@ class FileSystemToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "allow paths when allowedPaths is set" in {
+    assume(!isWindows, "Unix paths not available on Windows")
     val config = FileConfig(allowedPaths = Some(Seq("/tmp", "/home/user")))
 
     config.isPathAllowed(Paths.get("/tmp/file.txt")) shouldBe true
@@ -35,6 +40,7 @@ class FileSystemToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "block paths in blocklist even if in allowlist" in {
+    assume(!isWindows, "Unix paths not available on Windows")
     val config = FileConfig(
       allowedPaths = Some(Seq("/")),
       blockedPaths = Seq("/etc", "/var")
@@ -46,6 +52,7 @@ class FileSystemToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   "WriteConfig" should "require explicit allowed paths" in {
+    assume(!isWindows, "Unix paths not available on Windows")
     val config = WriteConfig(allowedPaths = Seq("/tmp/output"))
 
     config.isPathAllowed(Paths.get("/tmp/output/file.txt")) shouldBe true
@@ -74,6 +81,7 @@ class FileSystemToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "deny access to blocked paths" in {
+    assume(!isWindows, "Unix system paths not available on Windows")
     val config = FileConfig()
     val tool   = ReadFileTool.create(config)
 
@@ -237,6 +245,7 @@ class FileSystemToolsSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "deny write to non-allowed paths" in {
+    assume(!isWindows, "Unix paths not available on Windows")
     val config = WriteConfig(allowedPaths = Seq("/tmp/specific"))
     val tool   = WriteFileTool.create(config)
 
