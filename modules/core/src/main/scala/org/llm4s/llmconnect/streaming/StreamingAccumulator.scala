@@ -7,16 +7,18 @@ import scala.collection.mutable
 
 /**
  * Accumulates streaming chunks into a complete response.
- * Handles content accumulation, tool call accumulation, and token tracking.
+ * Handles content accumulation, tool call accumulation, thinking content, and token tracking.
  */
 class StreamingAccumulator {
 
   private val contentBuilder               = new StringBuilder()
+  private val thinkingBuilder              = new StringBuilder()
   private val toolCalls                    = mutable.ArrayBuffer[ToolCall]()
   private var messageId: Option[String]    = None
   private var finishReason: Option[String] = None
   private var promptTokens: Int            = 0
   private var completionTokens: Int        = 0
+  private var thinkingTokens: Int          = 0
 
   // For accumulating partial tool calls
   private val partialToolCalls = mutable.Map[String, PartialToolCall]()
@@ -30,8 +32,11 @@ class StreamingAccumulator {
       messageId = Some(chunk.id)
     }
 
-    // Accumulate content
+    // Accumulate main content
     chunk.content.foreach(contentBuilder.append)
+
+    // Accumulate thinking content
+    chunk.thinkingDelta.foreach(thinkingBuilder.append)
 
     // Handle tool calls
     chunk.toolCall.foreach { toolCall =>
@@ -59,9 +64,21 @@ class StreamingAccumulator {
   }
 
   /**
+   * Add thinking content delta directly
+   */
+  def addThinkingDelta(delta: String): Unit =
+    thinkingBuilder.append(delta)
+
+  /**
    * Get the current accumulated content
    */
   def getCurrentContent: String = contentBuilder.toString
+
+  /**
+   * Get the current accumulated thinking content
+   */
+  def getCurrentThinking: Option[String] =
+    if (thinkingBuilder.isEmpty) None else Some(thinkingBuilder.toString)
 
   /**
    * Get the current tool calls
@@ -84,6 +101,11 @@ class StreamingAccumulator {
   def isComplete: Boolean = finishReason.isDefined
 
   /**
+   * Check if there is any thinking content
+   */
+  def hasThinking: Boolean = thinkingBuilder.nonEmpty
+
+  /**
    * Convert accumulated data to a Completion
    */
   def toCompletion: Result[Completion] = {
@@ -94,9 +116,14 @@ class StreamingAccumulator {
       toolCalls = finalToolCalls
     )
 
-    val usage = if (promptTokens > 0 || completionTokens > 0) {
-      Some(TokenUsage(promptTokens, completionTokens, promptTokens + completionTokens))
+    val thinkingTokensOpt = if (thinkingTokens > 0) Some(thinkingTokens) else None
+    val usage = if (promptTokens > 0 || completionTokens > 0 || thinkingTokens > 0) {
+      Some(
+        TokenUsage(promptTokens, completionTokens, promptTokens + completionTokens + thinkingTokens, thinkingTokensOpt)
+      )
     } else None
+
+    val thinking = getCurrentThinking
 
     Right(
       Completion(
@@ -105,7 +132,8 @@ class StreamingAccumulator {
         content = contentBuilder.toString(),
         model = "unknown",
         message = message,
-        usage = usage
+        usage = usage,
+        thinking = thinking
       )
     )
   }
@@ -119,16 +147,27 @@ class StreamingAccumulator {
   }
 
   /**
+   * Update token counts including thinking tokens
+   */
+  def updateTokensWithThinking(prompt: Int, completion: Int, thinking: Int): Unit = {
+    promptTokens = prompt
+    completionTokens = completion
+    thinkingTokens = thinking
+  }
+
+  /**
    * Clear the accumulator state
    */
   def clear(): Unit = {
     contentBuilder.clear()
+    thinkingBuilder.clear()
     toolCalls.clear()
     partialToolCalls.clear()
     messageId = None
     finishReason = None
     promptTokens = 0
     completionTokens = 0
+    thinkingTokens = 0
   }
 
   /**
@@ -137,11 +176,13 @@ class StreamingAccumulator {
   def snapshot(): AccumulatorSnapshot =
     AccumulatorSnapshot(
       content = getCurrentContent,
+      thinking = getCurrentThinking,
       toolCalls = getCurrentToolCalls,
       messageId = messageId,
       finishReason = finishReason,
       promptTokens = promptTokens,
-      completionTokens = completionTokens
+      completionTokens = completionTokens,
+      thinkingTokens = thinkingTokens
     )
 
   /**
@@ -159,11 +200,13 @@ class StreamingAccumulator {
  */
 case class AccumulatorSnapshot(
   content: String,
+  thinking: Option[String],
   toolCalls: Seq[ToolCall],
   messageId: Option[String],
   finishReason: Option[String],
   promptTokens: Int,
-  completionTokens: Int
+  completionTokens: Int,
+  thinkingTokens: Int = 0
 )
 
 /**

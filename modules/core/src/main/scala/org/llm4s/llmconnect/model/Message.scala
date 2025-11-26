@@ -47,7 +47,7 @@ object Message {
         case "user"      => UserMessage(obj("content").str)
         case "system"    => SystemMessage(obj("content").str)
         case "assistant" => read[AssistantMessage](obj("data"))
-        case "tool"      => ToolMessage(obj("toolCallId").str, obj("content").str)
+        case "tool"      => ToolMessage(obj("content").str, obj("toolCallId").str)
       }
     }
   )

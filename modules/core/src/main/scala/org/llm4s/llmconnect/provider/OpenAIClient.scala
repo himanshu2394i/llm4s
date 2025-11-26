@@ -25,6 +25,15 @@ import scala.util.Try
  * Uses Azure's OpenAI client library internally, which supports both direct OpenAI and
  * Azure-hosted OpenAI endpoints.
  *
+ * == Extended Thinking / Reasoning Support ==
+ *
+ * For OpenAI o1/o3/o4 models with reasoning capabilities, use [[OpenRouterClient]] instead,
+ * which fully supports the `reasoning_effort` parameter. The Azure SDK used by this client
+ * does not yet expose the `reasoning_effort` API parameter.
+ *
+ * For Anthropic Claude models with extended thinking, use [[AnthropicClient]] which has
+ * full support for the `thinking` parameter with `budget_tokens`.
+ *
  * @param model the model identifier (e.g., "gpt-4", "gpt-3.5-turbo")
  * @param client configured Azure OpenAI client instance
  * @param config provider configuration containing context window and reserve completion settings

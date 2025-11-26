@@ -14,11 +14,12 @@ object Versions {
   val scalamock = "7.4.2"
   val fansi    = "0.5.0"
   val postgres = "42.7.3"
+  val sqlite   = "3.45.3.0"
   val config   = "1.4.3"
   val hikariCP = "5.1.0"
 
   val azureOpenAI = "1.0.0-beta.16"
-  val anthropic   = "2.8.1"
+  val anthropic   = "2.11.1"
   val jtokkit     = "1.1.0"
   val requests    = "0.9.0"
   val websocket   = "1.6.0"
@@ -46,6 +47,7 @@ object Deps {
   val scalamock = "org.scalamock" %% "scalamock" % Versions.scalamock
   val fansi     = "com.lihaoyi"   %% "fansi"     % Versions.fansi
   val postgres  = "org.postgresql" % "postgresql" % Versions.postgres
+  val sqlite    = "org.xerial"     % "sqlite-jdbc" % Versions.sqlite
   val config    = "com.typesafe"   % "config"    % Versions.config
   val hikariCP  = "com.zaxxer"     % "HikariCP"  % Versions.hikariCP
 

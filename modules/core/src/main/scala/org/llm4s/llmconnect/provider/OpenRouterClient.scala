@@ -132,6 +132,12 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
       val content      = delta.obj.get("content").flatMap(_.strOpt)
       val finishReason = choice.obj.get("finish_reason").flatMap(_.strOpt).filter(_ != "null")
 
+      // Handle thinking content delta if present
+      val thinkingDelta = delta.obj
+        .get("thinking")
+        .flatMap(_.strOpt)
+        .orElse(delta.obj.get("reasoning").flatMap(_.strOpt))
+
       // Handle tool calls if present
       val toolCall = delta.obj.get("tool_calls").flatMap { toolCallsVal =>
         val toolCalls = toolCallsVal.arr
@@ -156,7 +162,8 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
           id = json.obj.get("id").flatMap(_.strOpt).getOrElse(""),
           content = content,
           toolCall = toolCall,
-          finishReason = finishReason
+          finishReason = finishReason,
+          thinkingDelta = thinkingDelta
         )
       )
     } else {
@@ -209,7 +216,62 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
       base("tools") = toolRegistry.getOpenAITools()
     }
 
+    // Add reasoning configuration based on model type
+    addReasoningConfig(base, options)
+
     base
+  }
+
+  /**
+   * Add reasoning configuration to the request based on model type.
+   *
+   * OpenRouter supports different reasoning modes:
+   * - For Anthropic Claude models: Uses `thinking` object with `type` and `budget_tokens`
+   * - For OpenAI o1/o3 models: Uses `reasoning_effort` parameter
+   */
+  private def addReasoningConfig(base: ujson.Obj, options: CompletionOptions): Unit = {
+    val modelLower = config.model.toLowerCase
+
+    // Check if reasoning is requested
+    options.reasoning.foreach { effort =>
+      if (effort != ReasoningEffort.None) {
+        // Determine if this is an Anthropic or OpenAI model
+        val isAnthropicModel = modelLower.contains("claude") || modelLower.contains("anthropic")
+        val isOpenAIReasoningModel =
+          modelLower.contains("o1") || modelLower.contains("o3") || modelLower.contains("o4")
+
+        if (isAnthropicModel) {
+          // Anthropic extended thinking via `thinking` parameter
+          val maxTokens       = options.maxTokens.getOrElse(2048)
+          val budgetTokens    = options.effectiveBudgetTokens.getOrElse(ReasoningEffort.defaultBudgetTokens(effort))
+          val effectiveBudget = math.max(1024, math.min(budgetTokens, maxTokens - 1))
+          base("thinking") = ujson.Obj(
+            "type"          -> "enabled",
+            "budget_tokens" -> effectiveBudget
+          )
+        } else if (isOpenAIReasoningModel) {
+          // OpenAI reasoning_effort parameter for o1/o3 models
+          base("reasoning_effort") = effort.name
+        }
+        // For other models, reasoning is silently ignored
+      }
+    }
+
+    // Also support explicit budget tokens without reasoning effort set
+    if (options.reasoning.isEmpty) {
+      options.budgetTokens.foreach { budgetTokens =>
+        val modelLower       = config.model.toLowerCase
+        val isAnthropicModel = modelLower.contains("claude") || modelLower.contains("anthropic")
+        if (isAnthropicModel && budgetTokens > 0) {
+          val maxTokens       = options.maxTokens.getOrElse(2048)
+          val effectiveBudget = math.max(1024, math.min(budgetTokens, maxTokens - 1))
+          base("thinking") = ujson.Obj(
+            "type"          -> "enabled",
+            "budget_tokens" -> effectiveBudget
+          )
+        }
+      }
+    }
   }
 
   private def parseCompletion(json: ujson.Value): Completion = {
@@ -221,15 +283,31 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
       .map(tc => OpenRouterToolCallDeserializer.deserializeToolCalls(tc))
       .getOrElse(Seq.empty)
 
+    // Extract thinking content if present (for models that support extended thinking)
+    // OpenRouter may return thinking in the message or in a separate field
+    val thinking = message.obj
+      .get("thinking")
+      .flatMap(_.strOpt)
+      .orElse(message.obj.get("reasoning").flatMap(_.strOpt))
+      .orElse(choice.obj.get("thinking").flatMap(_.strOpt))
+
     val usage = Option(json.obj.get("usage")).flatMap { u =>
       val usageObjOpt =
         u.objOpt.orElse(u.arrOpt.flatMap(_.headOption.flatMap(_.objOpt)))
       usageObjOpt.map { usageObj =>
-        TokenUsage(
+        // Extract base token usage
+        val baseUsage = TokenUsage(
           promptTokens = usageObj.value("prompt_tokens").num.toInt,
           completionTokens = usageObj.value("completion_tokens").num.toInt,
           totalTokens = usageObj.value("total_tokens").num.toInt
         )
+        // Check for thinking tokens (OpenRouter may include reasoning_tokens)
+        val thinkingTokens = usageObj.value.get("reasoning_tokens").flatMap(_.numOpt).map(_.toInt)
+        if (thinkingTokens.isDefined) {
+          baseUsage.copy(thinkingTokens = thinkingTokens)
+        } else {
+          baseUsage
+        }
       }
     }
 
@@ -243,7 +321,8 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
         toolCalls = toolCalls.toList
       ),
       toolCalls = toolCalls.toList,
-      usage = usage
+      usage = usage,
+      thinking = thinking
     )
   }
 

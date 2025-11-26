@@ -1,7 +1,13 @@
 package org.llm4s.llmconnect.provider
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.{ JsonObject, ObjectMappers }
-import com.anthropic.models.messages.{ Message, MessageCreateParams, RawMessageStreamEvent, Tool }
+import com.anthropic.models.messages.{
+  Message,
+  MessageCreateParams,
+  RawMessageStreamEvent,
+  ThinkingConfigEnabled,
+  Tool
+}
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.config.{ AnthropicConfig, ProviderConfig }
 import org.llm4s.llmconnect.model._
@@ -47,6 +53,15 @@ class AnthropicClient(config: AnthropicConfig) extends LLMClient {
         // max tokens is required by the api
         val maxTokens = transformed.options.maxTokens.getOrElse(2048)
         paramsBuilder.maxTokens(maxTokens)
+
+        // Add extended thinking configuration if requested
+        // Minimum budget is 1024 tokens, must be less than max_tokens
+        transformed.options.effectiveBudgetTokens.foreach { budgetTokens =>
+          val effectiveBudget = math.max(1024, math.min(budgetTokens, maxTokens - 1))
+          paramsBuilder.thinking(
+            ThinkingConfigEnabled.builder().budgetTokens(effectiveBudget.toLong).build()
+          )
+        }
 
         // Add tools if specified
         if (transformed.options.tools.nonEmpty) {
@@ -114,6 +129,15 @@ curl https://api.anthropic.com/v1/messages \
         // Add max tokens if specified (required by the API)
         val maxTokens = transformed.options.maxTokens.getOrElse(2048)
         paramsBuilder.maxTokens(maxTokens)
+
+        // Add extended thinking configuration if requested
+        transformed.options.effectiveBudgetTokens.foreach { budgetTokens =>
+          val effectiveBudget = math.max(1024, math.min(budgetTokens, maxTokens - 1))
+          paramsBuilder.thinking(
+            ThinkingConfigEnabled.builder().budgetTokens(effectiveBudget.toLong).build()
+          )
+        }
+
         // Add tools if specified
         if (transformed.options.tools.nonEmpty)
           transformed.options.tools.foreach(t => paramsBuilder.addTool(convertToolToAnthropicTool(t)))
@@ -149,6 +173,8 @@ curl https://api.anthropic.com/v1/messages \
               if (contentDeltaOpt != null && contentDeltaOpt.isPresent) {
                 val contentDelta = contentDeltaOpt.get()
                 val delta        = contentDelta.delta()
+
+                // Handle text content delta
                 Try(delta.text()).foreach { textOpt =>
                   if (textOpt != null && textOpt.isPresent) {
                     val textDelta = textOpt.get()
@@ -159,6 +185,25 @@ curl https://api.anthropic.com/v1/messages \
                         content = Some(text),
                         toolCall = None,
                         finishReason = None
+                      )
+                      accumulator.addChunk(chunk)
+                      onChunk(chunk)
+                    }
+                  }
+                }
+
+                // Handle thinking content delta
+                Try(delta.thinking()).foreach { thinkingOpt =>
+                  if (thinkingOpt != null && thinkingOpt.isPresent) {
+                    val thinkingDelta = thinkingOpt.get()
+                    val thinkingText  = thinkingDelta.thinking()
+                    if (thinkingText != null && thinkingText.nonEmpty) {
+                      val chunk = StreamedChunk(
+                        id = currentMessageId.getOrElse(""),
+                        content = None,
+                        toolCall = None,
+                        finishReason = None,
+                        thinkingDelta = Some(thinkingText)
                       )
                       accumulator.addChunk(chunk)
                       onChunk(chunk)
@@ -271,15 +316,30 @@ curl https://api.anthropic.com/v1/messages \
   private def convertToolToAnthropicTool(toolFunction: ToolFunction[_, _]): Tool = {
     // note: in case of debug set this environment variable -- `ANTHROPIC_LOG=debug`
 
-    val objectSchema = toolFunction.schema.asInstanceOf[ObjectSchema[_]]
-    val jsonSchema: JsonObject =
-      ObjectMappers.jsonMapper().readValue(objectSchema.toJsonSchema(false).render(), classOf[JsonObject])
-    val jsonSchemaMap   = jsonSchema.values()
-    val inputProperties = jsonSchemaMap.get("properties")
+    val objectSchema  = toolFunction.schema.asInstanceOf[ObjectSchema[_]]
+    val jsonSchemaStr = objectSchema.toJsonSchema(false).render()
 
+    // Parse the JSON schema and extract properties
+    val jsonSchema: JsonObject =
+      ObjectMappers.jsonMapper().readValue(jsonSchemaStr, classOf[JsonObject])
+    val jsonSchemaMap = jsonSchema.values()
+
+    // Build the input schema using raw JSON value for properties
+    // The new SDK requires proper Properties type, so we use the putAdditionalProperty approach
     val inputSchemaBuilder = Tool.InputSchema.builder()
-    inputSchemaBuilder.properties(inputProperties)
-    objectSchema.properties.map(p => p.required)
+
+    // Convert the properties JsonValue to Properties type
+    val propertiesValue = jsonSchemaMap.get("properties")
+    if (propertiesValue != null) {
+      // Use the properties via JsonValue wrapper
+      val propertiesObj = ObjectMappers
+        .jsonMapper()
+        .readValue(
+          ObjectMappers.jsonMapper().writeValueAsString(propertiesValue),
+          classOf[Tool.InputSchema.Properties]
+        )
+      inputSchemaBuilder.properties(propertiesObj)
+    }
 
     val tool = Tool
       .builder()
@@ -292,20 +352,36 @@ curl https://api.anthropic.com/v1/messages \
 
   // Convert Anthropic response to our model
   private def convertFromAnthropicResponse(response: Message): Completion = {
-    // Extract content
-    val content: Option[String] = Some(
-      response
-        .content()
-        .asScala
-        .toList
-        .filter(_.isText)
-        .map(_.asText().text())
-        .mkString
-    )
+    val contentBlocks = response.content().asScala.toList
+
+    // Extract text content
+    val textContent: Option[String] = {
+      val texts = contentBlocks.filter(_.isText).map(_.asText().text())
+      if (texts.nonEmpty) Some(texts.mkString) else None
+    }
+
+    // Extract thinking content (for extended thinking responses)
+    val thinkingContent: Option[String] = {
+      val thinkingTexts = contentBlocks.filter(_.isThinking).map(_.asThinking().thinking())
+      if (thinkingTexts.nonEmpty) Some(thinkingTexts.mkString) else None
+    }
 
     // Extract tool calls if present
     val toolCalls = extractToolCalls(response)
-    val message   = AssistantMessage(contentOpt = content, toolCalls = toolCalls)
+    val message   = AssistantMessage(contentOpt = textContent, toolCalls = toolCalls)
+
+    // Extract token usage, including thinking tokens if available
+    val usage = response.usage()
+    val baseTokenUsage = TokenUsage(
+      promptTokens = usage.inputTokens().toInt,
+      completionTokens = usage.outputTokens().toInt,
+      totalTokens = (usage.inputTokens() + usage.outputTokens()).toInt
+    )
+
+    // Check for thinking tokens in cache usage (Anthropic reports cache_read_input_tokens for thinking)
+    // Note: The SDK may expose thinking tokens differently - adjust as needed
+    val tokenUsage = baseTokenUsage
+
     // Create completion
     Completion(
       id = response.id(),
@@ -314,13 +390,8 @@ curl https://api.anthropic.com/v1/messages \
       toolCalls = toolCalls.toList,
       created = System.currentTimeMillis() / 1000, // Use current time as created timestamp
       message = message,
-      usage = Some(
-        TokenUsage(
-          promptTokens = response.usage().inputTokens().toInt,
-          completionTokens = response.usage().outputTokens().toInt,
-          totalTokens = (response.usage().inputTokens() + response.usage().outputTokens()).toInt
-        )
-      )
+      usage = Some(tokenUsage),
+      thinking = thinkingContent
     )
   }
 

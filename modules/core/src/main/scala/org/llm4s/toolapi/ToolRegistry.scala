@@ -2,6 +2,8 @@ package org.llm4s.toolapi
 
 import org.llm4s.core.safety.Safety
 
+import scala.concurrent.{ ExecutionContext, Future }
+
 /**
  * Request model for tool calls
  */
@@ -11,7 +13,12 @@ case class ToolCallRequest(
 )
 
 /**
- * Registry for tool functions with execution capabilities
+ * Registry for tool functions with execution capabilities.
+ *
+ * Supports both synchronous and asynchronous tool execution:
+ * - `execute()` - Synchronous, blocking execution (original API)
+ * - `executeAsync()` - Asynchronous, non-blocking execution
+ * - `executeAll()` - Batch execution with configurable strategy
  */
 class ToolRegistry(initialTools: Seq[ToolFunction[_, _]]) {
 
@@ -20,7 +27,7 @@ class ToolRegistry(initialTools: Seq[ToolFunction[_, _]]) {
   // Get a specific tool by name
   def getTool(name: String): Option[ToolFunction[_, _]] = tools.find(_.name == name)
 
-  // Execute a tool call
+  // Execute a tool call synchronously
   def execute(request: ToolCallRequest): Either[ToolCallError, ujson.Value] =
     tools.find(_.name == request.functionName) match {
       case Some(tool) =>
@@ -31,6 +38,78 @@ class ToolRegistry(initialTools: Seq[ToolFunction[_, _]]) {
           .flatten
       case None => Left(ToolCallError.UnknownFunction(request.functionName))
     }
+
+  /**
+   * Execute a tool call asynchronously.
+   *
+   * Wraps synchronous execution in a Future for non-blocking operation.
+   *
+   * @param request The tool call request
+   * @param ec ExecutionContext for async execution
+   * @return Future containing the result
+   */
+  def executeAsync(request: ToolCallRequest)(implicit
+    ec: ExecutionContext
+  ): Future[Either[ToolCallError, ujson.Value]] =
+    Future(execute(request))
+
+  /**
+   * Execute multiple tool calls with a configurable strategy.
+   *
+   * @param requests The tool call requests to execute
+   * @param strategy Execution strategy (Sequential, Parallel, or ParallelWithLimit)
+   * @param ec ExecutionContext for async execution
+   * @return Future containing results in the same order as requests
+   */
+  def executeAll(
+    requests: Seq[ToolCallRequest],
+    strategy: ToolExecutionStrategy = ToolExecutionStrategy.default
+  )(implicit ec: ExecutionContext): Future[Seq[Either[ToolCallError, ujson.Value]]] =
+    strategy match {
+      case ToolExecutionStrategy.Sequential =>
+        executeSequential(requests)
+
+      case ToolExecutionStrategy.Parallel =>
+        executeParallel(requests)
+
+      case ToolExecutionStrategy.ParallelWithLimit(maxConcurrency) =>
+        executeWithLimit(requests, maxConcurrency)
+    }
+
+  /**
+   * Execute requests sequentially (one at a time).
+   */
+  private def executeSequential(
+    requests: Seq[ToolCallRequest]
+  )(implicit ec: ExecutionContext): Future[Seq[Either[ToolCallError, ujson.Value]]] =
+    requests.foldLeft(Future.successful(Seq.empty[Either[ToolCallError, ujson.Value]])) { (accFuture, request) =>
+      accFuture.flatMap(acc => executeAsync(request).map(result => acc :+ result))
+    }
+
+  /**
+   * Execute all requests in parallel.
+   */
+  private def executeParallel(
+    requests: Seq[ToolCallRequest]
+  )(implicit ec: ExecutionContext): Future[Seq[Either[ToolCallError, ujson.Value]]] =
+    Future.traverse(requests)(executeAsync)
+
+  /**
+   * Execute requests in parallel with a concurrency limit.
+   *
+   * Groups requests into batches of maxConcurrency size,
+   * executes each batch in parallel, then combines results.
+   */
+  private def executeWithLimit(
+    requests: Seq[ToolCallRequest],
+    maxConcurrency: Int
+  )(implicit ec: ExecutionContext): Future[Seq[Either[ToolCallError, ujson.Value]]] = {
+    val batches = requests.grouped(maxConcurrency).toSeq
+
+    batches.foldLeft(Future.successful(Seq.empty[Either[ToolCallError, ujson.Value]])) { (accFuture, batch) =>
+      accFuture.flatMap(acc => executeParallel(batch).map(batchResults => acc ++ batchResults))
+    }
+  }
 
   // Generate OpenAI tool definitions for all tools
   def getOpenAITools(strict: Boolean = true): ujson.Arr =

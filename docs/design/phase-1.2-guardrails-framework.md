@@ -1,11 +1,12 @@
 # Phase 1.2: Guardrails Framework
 
-> **Date:** 2025-01-16
-> **Status:** Design Phase
+> **Date:** 2025-01-16 (Updated: 2025-11-25)
+> **Status:** ✅ Implemented (including LLM-as-Judge extension)
 > **Priority:** ⭐⭐⭐⭐⭐ Critical for Production
 > **Effort:** 2-3 weeks
 > **Phase:** 1.2 - Core Usability
 > **Dependencies:** Phase 1.1 (Functional Conversation Management)
+> **Implementation:** Complete - See `org.llm4s.agent.guardrails` package
 
 ---
 
@@ -601,6 +602,165 @@ object Tone {
   case object Neutral extends Tone
 }
 ```
+
+### 2b. LLM-as-Judge Guardrails (NEW - CrewAI 2025 Feature Parity)
+
+LLM-based guardrails use a language model to evaluate content against natural language
+criteria. This enables validation of subjective qualities that cannot be easily checked
+with deterministic rules.
+
+**Added:** 2025-11-25 as part of CrewAI feature parity analysis.
+
+```scala
+package org.llm4s.agent.guardrails
+
+import org.llm4s.llmconnect.LLMClient
+import org.llm4s.types.Result
+
+/**
+ * Base trait for LLM-based guardrails (LLM-as-Judge pattern).
+ *
+ * LLM guardrails use a language model to evaluate content against
+ * natural language criteria, returning a score between 0.0 and 1.0.
+ *
+ * @note LLM guardrails have higher latency than function-based guardrails.
+ *       Use them only when deterministic validation is insufficient.
+ */
+trait LLMGuardrail extends OutputGuardrail {
+  /** The LLM client to use for evaluation */
+  def llmClient: LLMClient
+
+  /** Natural language prompt describing the evaluation criteria */
+  def evaluationPrompt: String
+
+  /** Minimum score required to pass validation (0.0 to 1.0). Default: 0.7 */
+  def threshold: Double = 0.7
+
+  override def validate(value: String): Result[String] = {
+    evaluateWithLLM(value).flatMap { score =>
+      if (score >= threshold) Right(value)
+      else Left(ValidationError.invalid(
+        "output",
+        s"LLM judge score ($score) below threshold ($threshold)"
+      ))
+    }
+  }
+
+  protected def evaluateWithLLM(content: String): Result[Double]
+}
+
+object LLMGuardrail {
+  /** Create a custom LLM guardrail with specified parameters */
+  def apply(
+    client: LLMClient,
+    prompt: String,
+    passThreshold: Double = 0.7,
+    guardrailName: String = "CustomLLMGuardrail"
+  ): LLMGuardrail
+}
+```
+
+**Built-in LLM Guardrails:**
+
+```scala
+package org.llm4s.agent.guardrails.builtin
+
+/**
+ * LLM-based tone validation guardrail.
+ * More accurate than keyword-based ToneValidator for nuanced tone detection.
+ */
+class LLMToneGuardrail(
+  llmClient: LLMClient,
+  allowedTones: Set[String],  // e.g., Set("professional", "friendly")
+  threshold: Double = 0.7
+) extends LLMGuardrail
+
+object LLMToneGuardrail {
+  def professional(client: LLMClient, threshold: Double = 0.7): LLMToneGuardrail
+  def friendly(client: LLMClient, threshold: Double = 0.7): LLMToneGuardrail
+  def professionalOrFriendly(client: LLMClient, threshold: Double = 0.7): LLMToneGuardrail
+}
+
+/**
+ * LLM-based factual accuracy validation guardrail.
+ * Essential for RAG applications to prevent hallucination.
+ */
+class LLMFactualityGuardrail(
+  llmClient: LLMClient,
+  referenceContext: String,  // The source documents to verify against
+  threshold: Double = 0.7
+) extends LLMGuardrail
+
+object LLMFactualityGuardrail {
+  def strict(client: LLMClient, referenceContext: String): LLMFactualityGuardrail
+  def lenient(client: LLMClient, referenceContext: String): LLMFactualityGuardrail
+}
+
+/**
+ * LLM-based content safety validation guardrail.
+ * More nuanced safety checking than keyword-based filters.
+ */
+class LLMSafetyGuardrail(
+  llmClient: LLMClient,
+  threshold: Double = 0.8,  // Higher default for safety
+  customCriteria: Option[String] = None
+) extends LLMGuardrail
+
+object LLMSafetyGuardrail {
+  def strict(client: LLMClient): LLMSafetyGuardrail
+  def childSafe(client: LLMClient): LLMSafetyGuardrail
+  def withCustomCriteria(client: LLMClient, criteria: String): LLMSafetyGuardrail
+}
+
+/**
+ * LLM-based response quality validation guardrail.
+ * Evaluates helpfulness, completeness, clarity, and relevance.
+ */
+class LLMQualityGuardrail(
+  llmClient: LLMClient,
+  originalQuery: String,  // For relevance checking
+  threshold: Double = 0.7
+) extends LLMGuardrail
+
+object LLMQualityGuardrail {
+  def highQuality(client: LLMClient, originalQuery: String): LLMQualityGuardrail
+}
+```
+
+**Usage Example:**
+
+```scala
+import org.llm4s.agent.guardrails.builtin._
+
+// RAG application with factuality checking
+val referenceContext = loadRetrievedDocuments(query)
+val factualityGuardrail = LLMFactualityGuardrail(client, referenceContext, threshold = 0.8)
+
+// Professional tone for customer support
+val toneGuardrail = LLMToneGuardrail.professional(client)
+
+// Safety for user-facing content
+val safetyGuardrail = LLMSafetyGuardrail(client)
+
+agent.run(
+  query,
+  tools,
+  outputGuardrails = Seq(
+    new LengthCheck(10, 5000),  // Fast checks first
+    safetyGuardrail,            // Then LLM-based checks
+    toneGuardrail,
+    factualityGuardrail
+  )
+)
+```
+
+**Best Practices for LLM Guardrails:**
+
+1. **Order matters** - Put fast function-based guardrails before LLM guardrails
+2. **Use appropriate thresholds** - Higher for safety (0.8-0.95), lower for tone (0.6-0.7)
+3. **Consider latency** - Each LLM guardrail adds an API call
+4. **Separate judge model** - Consider using a different model for judging vs. generation
+5. **Combine with function guardrails** - Use LLM for nuance, functions for deterministic checks
 
 ### 3. Composite Guardrail
 

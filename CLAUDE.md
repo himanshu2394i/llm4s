@@ -1,6 +1,6 @@
 # CLAUDE.md - AI Assistant Guide for LLM4S
 
-> **Last Updated:** 2025-11-15
+> **Last Updated:** 2025-11-26
 > **Purpose:** Comprehensive guide for AI assistants working with the LLM4S codebase
 
 ## Table of Contents
@@ -108,6 +108,7 @@ org/llm4s/
 │   ├── stt/             # Speech-to-text (Vosk, etc.)
 │   └── tts/             # Text-to-speech
 ├── toolapi/              # Tool calling framework
+│   └── builtin/         # Built-in tools (DateTime, File, HTTP, Shell, Search)
 ├── trace/                # Observability and tracing
 └── types/                # Core type definitions (Result, newtypes)
 ```
@@ -120,6 +121,7 @@ org/llm4s/
 | `modules/core/src/main/scala/org/llm4s/config/ConfigReader.scala` | Central configuration loader |
 | `modules/core/src/main/scala/org/llm4s/llmconnect/LLMClient.scala` | Main LLM client interface |
 | `modules/core/src/main/scala/org/llm4s/toolapi/ToolFunction.scala` | Tool calling framework |
+| `modules/core/src/main/scala/org/llm4s/toolapi/builtin/BuiltinTools.scala` | Built-in tool bundles |
 | `modules/core/src/main/scala/org/llm4s/trace/` | Tracing implementations |
 | `modules/samples/src/main/scala/org/llm4s/samples/` | Working examples |
 | `project/Dependencies.scala` | Dependency versions |
@@ -685,6 +687,163 @@ def getWeather(location: String, unit: String = "celsius"): Result[String] = {
 // Tool registration happens automatically via ToolFunction.apply
 ```
 
+### Using Built-in Tools
+
+**Built-in tools** were added in Phase 3.2 to provide production-ready tools for common agent tasks. These include core utilities, file system operations, HTTP requests, shell commands, and web search.
+
+#### Tool Bundles
+
+```scala
+import org.llm4s.toolapi.builtin.BuiltinTools
+
+// Core utilities only (DateTime, Calculator, UUID, JSON) - always safe
+val coreTools = BuiltinTools.core
+
+// Core + safe network tools (web search, HTTP)
+val safeTools = BuiltinTools.safe()
+
+// Safe + read-only file access
+val fileTools = BuiltinTools.withFiles()
+
+// All tools for development (use with caution)
+val devTools = BuiltinTools.development()
+```
+
+#### Custom Configuration
+
+```scala
+import org.llm4s.toolapi.builtin._
+import org.llm4s.toolapi.builtin.filesystem._
+import org.llm4s.toolapi.builtin.shell._
+import org.llm4s.toolapi.builtin.http._
+
+val tools = BuiltinTools.custom(
+  includeSearch = true,
+  httpConfig = Some(HttpConfig.readOnly()),
+  fileConfig = Some(FileConfig(
+    allowedPaths = Some(Seq("/tmp", "/home/user")),
+    blockedPaths = Seq("/etc", "/var")
+  )),
+  writeConfig = Some(WriteConfig(allowedPaths = Seq("/tmp"))),
+  shellConfig = Some(ShellConfig.readOnly())
+)
+```
+
+#### Using with Agents
+
+```scala
+import org.llm4s.agent.Agent
+import org.llm4s.toolapi.ToolRegistry
+import org.llm4s.toolapi.builtin.BuiltinTools
+
+for {
+  client <- LLMConnect.fromEnv()
+  tools = new ToolRegistry(BuiltinTools.safe())
+  agent = new Agent(client)
+  state <- agent.run("What is 15% of 850?", tools)
+} yield state
+```
+
+#### Available Tools
+
+| Category | Tool | Description |
+|----------|------|-------------|
+| Core | `get_current_datetime` | Current date/time with timezone |
+| Core | `calculator` | Math operations (add, sqrt, power, etc.) |
+| Core | `generate_uuid` | UUID generation |
+| Core | `json_tool` | Parse, format, query JSON |
+| File | `read_file` | Read file contents |
+| File | `write_file` | Write/append files |
+| File | `list_directory` | List directory contents |
+| File | `file_info` | Get file metadata |
+| HTTP | `http_request` | HTTP requests |
+| Shell | `shell_command` | Execute shell commands |
+| Search | `web_search` | Web search (DuckDuckGo) |
+
+#### Examples
+
+- **Direct usage**: `samples/runMain org.llm4s.samples.toolapi.BuiltinToolsExample`
+- **With agent**: `samples/runMain org.llm4s.samples.agent.BuiltinToolsAgentExample`
+
+### Using Reasoning Modes
+
+**Reasoning modes** were added in Phase 4.1 to support extended thinking in models like OpenAI o1/o3 and Anthropic Claude.
+
+#### Basic Usage
+
+```scala
+import org.llm4s.llmconnect.LLMConnect
+import org.llm4s.llmconnect.model._
+
+// Enable high reasoning for complex tasks
+val options = CompletionOptions()
+  .withReasoning(ReasoningEffort.High)
+  .copy(maxTokens = Some(4096))
+
+for {
+  client <- LLMConnect.fromEnv()
+  conversation = Conversation(Seq(
+    UserMessage("Solve: What is the probability of drawing 3 aces from a deck?")
+  ))
+  response <- client.complete(conversation, options)
+} yield {
+  // Access thinking content if available
+  response.thinking.foreach(t => println(s"Thinking: $t"))
+  println(s"Answer: ${response.content}")
+
+  // Track thinking token usage
+  response.usage.flatMap(_.thinkingTokens).foreach(t =>
+    println(s"Thinking tokens: $t")
+  )
+}
+```
+
+#### Reasoning Effort Levels
+
+| Level | Description | Anthropic Budget Tokens |
+|-------|-------------|------------------------|
+| `None` | Standard completion | 0 |
+| `Low` | Slight deliberation | 2,048 |
+| `Medium` | Balanced quality/latency | 8,192 |
+| `High` | Deep thinking | 32,768 |
+
+#### Custom Budget (Anthropic)
+
+```scala
+// Override default budget tokens
+val options = CompletionOptions()
+  .withBudgetTokens(16000)  // Custom budget
+  .copy(maxTokens = Some(4096))
+```
+
+#### Checking for Thinking Content
+
+```scala
+val completion = client.complete(conversation, options)
+
+completion.map { response =>
+  if (response.hasThinking) {
+    println(s"Thinking: ${response.thinking.get}")
+  }
+
+  // Full content with thinking wrapped in tags
+  println(response.fullContent)
+
+  // Token usage with thinking
+  response.usage.foreach { usage =>
+    if (usage.hasThinkingTokens) {
+      println(s"Total output tokens: ${usage.totalOutputTokens}")
+    }
+  }
+}
+```
+
+#### Examples
+
+- **API demo**: `samples/runMain org.llm4s.samples.reasoning.ReasoningModesExample`
+
+**Note:** Actual extended thinking requires models that support it (o1/o3 for OpenAI, Claude with extended thinking enabled). For other models, reasoning configuration is silently ignored.
+
 ### Working with Multi-Turn Conversations
 
 **Multi-turn conversation support** was added in Phase 1.1 to provide a functional, immutable API for agent conversations.
@@ -1095,6 +1254,129 @@ new PlanRunner().executePlan(plan, input)
 
 See [docs/design/phase-1.3-handoff-mechanism.md](docs/design/phase-1.3-handoff-mechanism.md) for complete design details.
 
+### Using the Memory System
+
+**Memory System** was added in Phase 1.4 to provide persistent context and knowledge retention for agents.
+
+#### Why Memory?
+
+Memory enables agents to:
+- Remember user preferences across sessions
+- Track facts about entities (people, organizations, concepts)
+- Store and retrieve knowledge from external sources
+- Learn from past conversations
+
+#### Memory Types
+
+```scala
+import org.llm4s.agent.memory._
+
+// Available memory types
+MemoryType.Conversation  // Chat history
+MemoryType.Entity        // Facts about entities
+MemoryType.Knowledge     // External knowledge
+MemoryType.UserFact      // User preferences
+MemoryType.Task          // Task outcomes
+MemoryType.Custom("x")   // Custom types
+```
+
+#### Basic Usage
+
+```scala
+import org.llm4s.agent.memory._
+
+// Create a memory manager
+val manager = SimpleMemoryManager.empty
+
+// Record user facts
+val result = for {
+  m1 <- manager.recordUserFact("Prefers Scala over Java", Some("user-1"), Some(0.9))
+  m2 <- m1.recordEntityFact(
+    EntityId.fromName("Scala"),
+    "Scala",
+    "A JVM language supporting FP and OOP",
+    "technology",
+    Some(0.8)
+  )
+  m3 <- m2.recordKnowledge("Cats Effect provides IO monad", "docs/ce.md", Map.empty)
+} yield m3
+
+// Get context for LLM prompt
+result.flatMap(_.getRelevantContext("Tell me about Scala"))
+```
+
+#### Memory Filtering
+
+Filters are composable with `&&`, `||`, `!` operators:
+
+```scala
+import org.llm4s.agent.memory.MemoryFilter._
+
+// Simple filters
+val onlyConversations = conversations
+val onlyImportant = important(0.7)
+val recentOnly = after(Instant.now().minus(7, ChronoUnit.DAYS))
+
+// Combined filters
+val recentImportant = after(weekAgo) && important(0.5)
+val entityOrKnowledge = entities || knowledge
+val notTasks = !tasks
+
+// Recall with filter
+store.recall(recentImportant, limit = 10)
+```
+
+#### Context Retrieval
+
+```scala
+// Get formatted context for LLM prompts
+manager.getRelevantContext("query", maxTokens = 2000)
+
+// Get entity-specific context
+manager.getEntityContext(EntityId.fromName("Scala"))
+
+// Get user context
+manager.getUserContext(Some("user-123"))
+
+// Get conversation history
+manager.getConversationContext("conv-id", maxMessages = 20)
+```
+
+#### With Agent Integration
+
+```scala
+import org.llm4s.agent.Agent
+import org.llm4s.agent.memory._
+
+val result = for {
+  client <- LLMConnect.fromEnv()
+  agent = new Agent(client)
+  manager = SimpleMemoryManager.empty
+
+  // Load user context
+  m1 <- manager.recordUserFact("Expert Scala developer", Some("user-1"), None)
+  userContext <- m1.getUserContext(Some("user-1"))
+
+  // Run agent with memory context
+  state <- agent.run(
+    query = "Help me optimize this code",
+    tools = ToolRegistry.empty,
+    systemPromptAddition = Some(s"User context:\n$userContext")
+  )
+
+  // Record the conversation for future reference
+  m2 <- m1.recordConversation(state.conversation.messages.toSeq, "session-1")
+} yield m2
+```
+
+#### Memory Examples
+
+- **Basic usage**: `samples/runMain org.llm4s.samples.memory.BasicMemoryExample`
+- **Conversation tracking**: `samples/runMain org.llm4s.samples.memory.ConversationMemoryExample`
+- **Agent integration**: `samples/runMain org.llm4s.samples.memory.MemoryWithAgentExample`
+
+See [docs/design/phase-1.4-memory-system.md](docs/design/phase-1.4-memory-system.md) for complete design details.
+
 ### Adding a New Provider
 
 1. **Create** provider config in `llmconnect/config/`
@@ -1232,6 +1514,7 @@ ls modules/core/src/main/scala-{2.13,3}/
 | Find usage examples | `modules/samples/src/main/scala/org/llm4s/samples/` |
 | Check provider implementations | `modules/core/src/main/scala/org/llm4s/llmconnect/provider/` |
 | Learn about tools | `modules/core/src/main/scala/org/llm4s/toolapi/` |
+| Use built-in tools | `modules/core/src/main/scala/org/llm4s/toolapi/builtin/` |
 | Understand agents | `modules/core/src/main/scala/org/llm4s/agent/` |
 | See tracing | `modules/core/src/main/scala/org/llm4s/trace/` |
 | Understand workspace | `modules/workspace/` |
@@ -1280,6 +1563,11 @@ ls modules/core/src/main/scala-{2.13,3}/
 |------|---------|
 | 2025-11-15 | Initial CLAUDE.md creation |
 | 2025-11-16 | Added Phase 1.1 multi-turn conversation management |
+| 2025-11-25 | Added Phase 1.2 guardrails with LLM-as-Judge |
+| 2025-11-25 | Added Phase 1.4 memory system documentation |
+| 2025-11-26 | Added Phase 3.2 built-in tools documentation |
+| 2025-11-26 | Added Phase 4.1 reasoning modes documentation |
+| 2025-11-26 | Phase 4.1 provider integration complete (Anthropic SDK 2.11.1, OpenRouter reasoning) |
 
 ---
 

@@ -1,9 +1,10 @@
 # llm4s Agent Framework Roadmap
 
-> **Date:** 2025-11-16
+> **Date:** 2025-11-26 (Updated)
 > **Purpose:** Strategic roadmap for enhancing llm4s agent capabilities while maintaining functional programming principles
-> **Status:** Analysis Complete
-> **Context:** Comprehensive comparison against OpenAI Agents SDK, PydanticAI, and CrewAI - focused on llm4s-specific improvements
+> **Status:** Analysis Complete - Roadmap Updated
+> **Context:** Comprehensive comparison against OpenAI Agents SDK, PydanticAI, and CrewAI (2025) - focused on llm4s-specific improvements
+> **Last Review:** Phase 4.3 (Session Serialization) completed - all CompletionOptions fields now serialize correctly
 
 ---
 
@@ -145,10 +146,23 @@ To properly position llm4s, we compare it against three leading Python agent fra
 | Built-in tools | ⚠️ Minimal | ✅ Web/file/computer | ❌ | ⚠️ Via integrations |
 | **Unique Features** |
 | Workspace isolation | ✅ Docker | ❌ | ❌ | ❌ |
-| MCP integration | ✅ | ⚠️ Planned | ✅ | ❌ |
+| MCP integration | ✅ | ⚠️ Planned | ✅ | ✅ Bidirectional |
 | Cross-version support | ✅ 2.13/3.x | N/A | N/A | N/A |
 | Role-based agents | ❌ | ❌ | ❌ | ✅ ✅ |
 | Hierarchical mgmt | ⚠️ Via DAG | ❌ | ❌ | ✅ ✅ |
+| **Memory & Knowledge** |
+| Short-term memory | ✅ (Phase 1.4) | ✅ | ⚠️ | ✅ ✅ |
+| Long-term memory | ✅ In-memory (SQLite planned) | ⚠️ | ⚠️ | ✅ SQLite3 |
+| Entity memory (RAG) | ✅ (Phase 1.4) | ❌ | ❌ | ✅ ✅ |
+| Knowledge storage | ✅ (Phase 1.4) | ❌ | ❌ | ✅ ChromaDB |
+| External memory integrations | ❌ (Planned) | ❌ | ❌ | ✅ Zep/Mem0 |
+| **LLM-as-Judge** |
+| Function guardrails | ✅ (Phase 1.2) | ✅ | ✅ | ✅ |
+| LLM-based guardrails | ✅ (Phase 1.2) | ⚠️ | ⚠️ | ✅ ✅ |
+| **Workflows** |
+| Crews (autonomous) | ⚠️ DAG-based | ⚠️ | ⚠️ | ✅ ✅ |
+| Flows (deterministic) | ⚠️ DAG-based | ✅ | ✅ | ✅ ✅ |
+| Visual builder/Studio | ❌ | ❌ | ❌ | ✅ |
 
 ### Design Philosophy Comparison
 
@@ -481,7 +495,7 @@ state2.conversation.messageCount  // 2 ✓ As expected
 | **Conversation History** | ✅ Manual via `AgentState.conversation` | ✅ Automatic via `Session` | **GAP: No auto-session** |
 | **Session Persistence** | ❌ Not built-in | ✅ Built-in with `.to_input_list()` | **GAP: Need session storage** |
 | **Multi-Turn Support** | ⚠️ Manual state threading | ✅ Automatic across runs | **GAP: Manual effort** |
-| **Session Serialization** | ⚠️ Partial (ujson support) | ✅ Full support | **GAP: Incomplete** |
+| **Session Serialization** | ✅ Full support (Phase 4.3) | ✅ Full support | **PARITY** |
 | **Context Management** | ⚠️ Manual message pruning | ✅ Automatic with sessions | **GAP: No auto-pruning** |
 
 ### 4. Guardrails & Validation
@@ -713,18 +727,105 @@ def approval_workflow(request):
 
 ---
 
-### Moderate Gaps (Medium Priority)
+#### 6. **Memory System** ⭐⭐⭐⭐⭐ (NEW - CrewAI 2025 Gap)
+**Gap:** No persistent memory framework for agents across sessions.
 
-#### 6. **Handoff Mechanism** ⭐⭐⭐
-**Gap:** No native API for agent-to-agent delegation.
+**Impact:**
+- Agents cannot remember past interactions or learned information
+- No entity tracking across conversations
+- No knowledge base integration for semantic retrieval
+- Users must implement custom persistence for every use case
 
-**Current:** Must explicitly model handoffs as DAG edges or tool calls.
+**CrewAI 2025 Advantage:**
+```python
+# CrewAI has comprehensive memory out-of-the-box
+crew = Crew(
+    agents=[agent],
+    memory=True,  # Enables memory system
+    memory_config={
+        "provider": "mem0",  # External memory integration
+        "config": {"user_id": "user123"}
+    }
+)
+# Short-term, long-term, entity, and contextual memory included
+```
 
-**Recommendation:** Add `Handoff` tool type for cleaner delegation semantics.
+**Memory Types in CrewAI:**
+- **Short-term memory** - Within-session context
+- **Long-term memory** - SQLite3 persistent storage across sessions
+- **Entity memory** - RAG-based entity tracking and reasoning
+- **Contextual memory** - Interaction context storage
+- **Knowledge storage** - ChromaDB vector similarity search
+- **External integrations** - Zep, Mem0, Couchbase for enterprise memory
+
+**llm4s Current:**
+- Only conversation history within AgentState
+- No persistence framework
+- No semantic/vector storage
+- No entity tracking
+
+**Recommendation:** Build functional memory framework with:
+1. `MemoryStore` trait with pluggable backends (in-memory, SQLite, vector DB)
+2. `EntityMemory` for tracking entities mentioned in conversations
+3. `KnowledgeBase` for semantic search over documents
+4. Pure functions for memory queries: `MemoryStore.recall(query): Result[Seq[Memory]]`
 
 ---
 
-#### 7. **Observability Integrations** ⭐⭐⭐
+#### 7. **LLM-as-Judge Guardrails** ⭐⭐⭐⭐ (NEW - CrewAI 2025 Gap)
+**Gap:** No LLM-based validation for subjective quality checks.
+
+**Impact:**
+- Cannot validate tone, factual accuracy, or complex quality criteria
+- Function-based guardrails limited to deterministic checks
+- Missing capability for nuanced output validation
+
+**CrewAI 2025 Advantage:**
+```python
+# CrewAI supports both function and LLM-based guardrails
+@task(guardrail="Ensure the response is professional and factually accurate")
+def write_report(self):
+    # LLM evaluates output against natural language criteria
+    ...
+```
+
+**llm4s Current (Planned Phase 1.2):**
+- Only function-based guardrails (`Guardrail[A].validate`)
+- No LLM-based validation
+
+**Recommendation:** Extend guardrails framework to include:
+```scala
+// LLM-as-Judge guardrail type
+trait LLMGuardrail extends OutputGuardrail {
+  def evaluationPrompt: String
+  def judgeModel: Option[ModelName] = None  // Use separate model for judging
+  def threshold: Double = 0.7  // Pass threshold
+}
+
+class ToneGuardrail(allowedTones: Set[String]) extends LLMGuardrail {
+  val evaluationPrompt = s"Rate if this response has ${allowedTones.mkString("/")} tone (0-1)"
+}
+
+class FactualityGuardrail(context: String) extends LLMGuardrail {
+  val evaluationPrompt = s"Rate factual accuracy given context: $context (0-1)"
+}
+```
+
+---
+
+### Moderate Gaps (Medium Priority)
+
+#### 8. **Handoff Mechanism** ⭐⭐⭐
+**Gap:** No native API for agent-to-agent delegation.
+**Status:** ✅ COMPLETED (Phase 1.3)
+
+**Current:** Must explicitly model handoffs as DAG edges or tool calls.
+
+**Update:** Handoff mechanism was implemented in Phase 1.3. See `docs/design/phase-1.3-handoff-mechanism.md`.
+
+---
+
+#### 9. **Observability Integrations** ⭐⭐⭐
 **Gap:** Limited to Langfuse only.
 
 **OpenAI Support:** Logfire, AgentOps, Braintrust, Scorecard, Keywords AI
@@ -733,7 +834,7 @@ def approval_workflow(request):
 
 ---
 
-#### 8. **Reasoning Modes** ⭐⭐⭐
+#### 10. **Reasoning Modes** ⭐⭐⭐
 **Gap:** No support for configuring reasoning effort (none/low/medium/high).
 
 **Impact:** Cannot optimize latency vs. quality tradeoff for reasoning models.
@@ -744,7 +845,7 @@ def approval_workflow(request):
 
 ### Minor Gaps (Low Priority)
 
-#### 9. **Provider Breadth** ⭐⭐
+#### 11. **Provider Breadth** ⭐⭐
 **Gap:** Supports 4 providers vs. OpenAI's 100+.
 
 **Impact:** Limited for users wanting niche models.
@@ -753,7 +854,7 @@ def approval_workflow(request):
 
 ---
 
-#### 10. **Async Tool Execution** ⭐⭐
+#### 12. **Async Tool Execution** ⭐⭐
 **Gap:** Tools are synchronous only.
 
 **Impact:** Blocking I/O in tools can slow down agent execution.
@@ -915,6 +1016,42 @@ class Agent(client: LLMClient) {
     outputGuardrails: Seq[OutputGuardrail] = Seq.empty  // NEW
   ): Result[AgentState]
 }
+
+// LLM-as-Judge Guardrails (CrewAI 2025 Feature Parity) - NEW
+trait LLMGuardrail extends OutputGuardrail {
+  def client: LLMClient  // Use this LLM to evaluate
+  def evaluationPrompt: String  // Natural language criteria
+  def judgeModel: Option[ModelName] = None  // Optional separate model
+  def threshold: Double = 0.7  // Pass threshold (0.0-1.0)
+
+  override def validate(value: String): Result[String] = {
+    // Use LLM to evaluate output against criteria
+    // Pure function - returns Result, no side effects
+    evaluateWithLLM(value, evaluationPrompt).flatMap { score =>
+      if (score >= threshold) Right(value)
+      else Left(GuardrailError(s"LLM judge score $score below threshold $threshold"))
+    }
+  }
+}
+
+// Built-in LLM-as-Judge guardrails
+class ToneGuardrail(
+  client: LLMClient,
+  allowedTones: Set[String]  // e.g., Set("professional", "friendly")
+) extends LLMGuardrail {
+  val evaluationPrompt = s"Rate if this response has one of these tones: ${allowedTones.mkString(", ")}. Score 0-1."
+}
+
+class FactualityGuardrail(
+  client: LLMClient,
+  context: String  // Reference context for fact-checking
+) extends LLMGuardrail {
+  val evaluationPrompt = s"Rate factual accuracy given this context: $context. Score 0-1."
+}
+
+class SafetyGuardrail(client: LLMClient) extends LLMGuardrail {
+  val evaluationPrompt = "Rate if this response is safe, appropriate, and non-harmful. Score 0-1."
+}
 ```
 
 **Testing:**
@@ -922,11 +1059,14 @@ class Agent(client: LLMClient) {
 - Composite guardrail logic
 - Parallel validation execution
 - Guardrail error aggregation
+- LLM-as-Judge accuracy testing
+- Judge model latency benchmarks
 
 **Documentation:**
 - Guardrails user guide
 - Custom guardrail tutorial
 - Best practices for safety validation
+- LLM-as-Judge configuration guide
 
 ---
 
@@ -974,6 +1114,136 @@ object AgentStatus {
 - Handoff patterns guide
 - Multi-agent coordination examples
 - Comparison with DAG orchestration
+
+---
+
+#### 1.4 Memory System ⭐⭐⭐⭐⭐ (NEW - CrewAI 2025 Feature Parity)
+**Effort:** 4-5 weeks
+**Priority:** HIGH - Critical gap identified in CrewAI comparison
+
+**Motivation:**
+CrewAI 2025 provides comprehensive memory capabilities that enable agents to:
+- Remember past interactions across sessions
+- Track entities mentioned in conversations
+- Retrieve relevant knowledge from vector stores
+- Learn and adapt from previous executions
+
+llm4s currently only maintains conversation history within a single `AgentState`, with no persistence or semantic memory.
+
+**Deliverables:**
+```scala
+package org.llm4s.agent.memory
+
+// Core memory trait - pure functional interface
+trait Memory {
+  def id: MemoryId
+  def content: String
+  def metadata: Map[String, String]
+  def timestamp: Instant
+  def memoryType: MemoryType
+}
+
+sealed trait MemoryType
+object MemoryType {
+  case object Conversation extends MemoryType  // From chat history
+  case object Entity extends MemoryType        // Entity tracking
+  case object Knowledge extends MemoryType     // From knowledge base
+  case object UserFact extends MemoryType      // Learned about user
+  case object Task extends MemoryType          // Task completion memory
+}
+
+// Memory Store - pluggable backends
+trait MemoryStore {
+  /**
+   * Store a memory - pure function, returns new store state or error
+   */
+  def store(memory: Memory): Result[MemoryStore]
+
+  /**
+   * Recall memories matching query - semantic search
+   */
+  def recall(
+    query: String,
+    topK: Int = 10,
+    filter: MemoryFilter = MemoryFilter.All
+  ): Result[Seq[Memory]]
+
+  /**
+   * Get all memories for an entity
+   */
+  def getEntityMemories(entityId: EntityId): Result[Seq[Memory]]
+}
+
+// Built-in memory store implementations
+class InMemoryStore extends MemoryStore  // For testing and simple use cases
+class SQLiteMemoryStore(dbPath: Path) extends MemoryStore  // Persistent, like CrewAI
+class VectorMemoryStore(
+  embeddings: EmbeddingClient,
+  vectorDb: VectorDatabase  // Pinecone, Qdrant, pgvector, etc.
+) extends MemoryStore  // Semantic search capabilities
+
+// Entity Memory - tracks entities across conversations
+case class Entity(
+  id: EntityId,
+  name: String,
+  entityType: String,  // person, organization, concept, etc.
+  facts: Seq[String],
+  firstMentioned: Instant,
+  lastMentioned: Instant
+)
+
+trait EntityMemory {
+  def extractEntities(text: String): Result[Seq[Entity]]
+  def updateEntity(entity: Entity, newFacts: Seq[String]): Result[Entity]
+  def getEntity(id: EntityId): Result[Option[Entity]]
+}
+
+// Knowledge Base - semantic search over documents
+trait KnowledgeBase {
+  def addDocument(doc: Document): Result[KnowledgeBase]
+  def search(query: String, topK: Int = 5): Result[Seq[Document]]
+}
+
+// Enhanced Agent with memory
+class Agent(
+  client: LLMClient,
+  memoryStore: Option[MemoryStore] = None  // NEW
+) {
+  def run(
+    query: String,
+    tools: ToolRegistry,
+    useMemory: Boolean = true,  // Whether to query/store memories
+    memoryConfig: MemoryConfig = MemoryConfig.default
+  ): Result[AgentState]
+}
+
+case class MemoryConfig(
+  recallTopK: Int = 5,              // How many memories to retrieve
+  storeConversation: Boolean = true, // Auto-store conversation
+  extractEntities: Boolean = false,  // Extract and track entities
+  memoryPromptTemplate: Option[String] = None  // Custom memory prompt
+)
+```
+
+**Testing:**
+- Memory storage and retrieval
+- Semantic search accuracy
+- Entity extraction and tracking
+- Cross-session persistence
+- Vector DB integrations (Pinecone, pgvector)
+- Performance benchmarks (memory overhead)
+
+**Documentation:**
+- Memory system user guide
+- Choosing a memory backend
+- Entity tracking patterns
+- Building knowledge-augmented agents
+- Migration from stateless to memory-enabled agents
+
+**External Integrations (Phase 2):**
+- Mem0 integration for managed memory
+- Zep integration for enterprise memory
+- Custom backend SPI for proprietary stores
 
 ---
 
@@ -1031,31 +1301,41 @@ class Agent(client: LLMClient) {
 
 ---
 
-#### 2.2 Async Tool Execution ⭐⭐⭐
-**Effort:** 1-2 weeks
+#### 2.2 Async Tool Execution ⭐⭐⭐ ✅ **COMPLETED**
+**Effort:** 1-2 weeks (Completed 2025-11-26)
 
 **Deliverables:**
 ```scala
 package org.llm4s.toolapi
 
-trait AsyncToolFunction {
-  def execute(request: ToolCallRequest): AsyncResult[ujson.Value]
-  def schema: ToolSchema
-  def name: String
+// Execution strategies for parallel tool execution
+sealed trait ToolExecutionStrategy
+object ToolExecutionStrategy {
+  case object Sequential extends ToolExecutionStrategy
+  case object Parallel extends ToolExecutionStrategy
+  case class ParallelWithLimit(maxConcurrency: Int) extends ToolExecutionStrategy
 }
 
-// Enhanced ToolRegistry
-class ToolRegistry(
-  syncTools: Seq[ToolFunction],
-  asyncTools: Seq[AsyncToolFunction]  // NEW
-)(implicit ec: ExecutionContext)
+// Enhanced ToolRegistry with async methods
+class ToolRegistry(tools: Seq[ToolFunction]) {
+  def executeAsync(request: ToolCallRequest)(implicit ec: ExecutionContext): Future[Either[ToolCallError, ujson.Value]]
+  def executeAll(requests: Seq[ToolCallRequest], strategy: ToolExecutionStrategy)(implicit ec: ExecutionContext): Future[Seq[Either[ToolCallError, ujson.Value]]]
+}
+
+// Agent methods for parallel tool execution
+class Agent(client: LLMClient) {
+  def runWithStrategy(query: String, tools: ToolRegistry, toolExecutionStrategy: ToolExecutionStrategy, ...)(implicit ec: ExecutionContext): Result[AgentState]
+  def continueConversationWithStrategy(...)(implicit ec: ExecutionContext): Result[AgentState]
+}
 ```
 
 **Testing:**
-- Async tool execution
-- Concurrent tool calls
-- Timeout handling
-- Error propagation
+- ✅ Async tool execution (11 tests)
+- ✅ Concurrent tool calls
+- ✅ Strategy selection (Sequential, Parallel, ParallelWithLimit)
+- ✅ Error propagation
+
+**Documentation:** [docs/design/phase-2.2-async-tools.md](phase-2.2-async-tools.md)
 
 ---
 
@@ -1239,53 +1519,161 @@ class GeminiClient(config: GeminiConfig) extends LLMClient
 
 ---
 
-#### 4.3 Session Serialization Enhancements ⭐⭐
+#### 4.3 Session Serialization Enhancements ⭐⭐ ✅ COMPLETED
 **Effort:** 1 week
+**Status:** Complete (2025-11-26)
+**Design Doc:** [phase-4.3-session-serialization.md](phase-4.3-session-serialization.md)
 
 **Deliverables:**
+- ReasoningEffort upickle ReadWriter for serialization
+- CompletionOptions serialization includes reasoning and budgetTokens
+- Backward-compatible deserialization (old JSON loads correctly)
+- Fixed ToolMessage deserialization bug
+- Comprehensive test coverage (33 tests in AgentStateSerializationSpec)
+
 ```scala
-// Complete serialization support
-object AgentState {
-  implicit val rw: ReadWriter[AgentState] = macroRW
-}
+// ReasoningEffort serialization
+implicit val rw: RW[ReasoningEffort] = readwriter[ujson.Value].bimap(...)
 
-// Session export/import
-class Session {
-  def toJson: ujson.Value
-  def toInputList: Seq[Message]  // OpenAI compatibility
-}
-
-object Session {
-  def fromJson(json: ujson.Value): Result[Session]
-  def fromInputList(messages: Seq[Message]): Session
-}
+// CompletionOptions with full serialization
+private def serializeCompletionOptions(opts: CompletionOptions): ujson.Value =
+  ujson.Obj(
+    "temperature"      -> ujson.Num(opts.temperature),
+    "reasoning"        -> opts.reasoning.map(r => writeJs(r)).getOrElse(ujson.Null),
+    "budgetTokens"     -> opts.budgetTokens.map(ujson.Num(_)).getOrElse(ujson.Null),
+    // ... other fields
+  )
 ```
 
 ---
 
 ## Priority Recommendations
 
+> **Updated:** 2025-11-26 - Phase 4.3 (Session Serialization) completed
+
 ### Immediate Action (Next 3 Months)
 
-1. **Session Management** - Critical for usability
-2. **Guardrails Framework** - Critical for production safety
-3. **Event-based Streaming** - Critical for UX
+1. ~~**Guardrails Framework with LLM-as-Judge**~~ ✅ **COMPLETED** (Phase 1.2)
+   - Function-based guardrails (input/output validation)
+   - LLM-as-Judge guardrails for tone, factuality, safety
+2. ~~**Memory System (Core)**~~ ✅ **COMPLETED** (Phase 1.4)
+   - Short-term and long-term memory types
+   - Entity tracking across conversations
+   - In-memory storage backend
+3. ~~**Event-based Streaming**~~ ✅ **COMPLETED** (Phase 2.1)
+4. ~~**Memory System Extensions**~~ ✅ **COMPLETED** (Phase 1.4.1-1.4.2)
 
 ### Short-term (3-6 Months)
 
-4. **Built-in Tools Module** - High value, reduces friction
-5. **Handoff Mechanism** - Improves multi-agent patterns
-6. **Async Tool Execution** - Performance improvement
+4. ~~**Built-in Tools Module**~~ ✅ **COMPLETED** (Phase 3.2)
+5. ~~**Handoff Mechanism**~~ ✅ **COMPLETED** (Phase 1.3)
+6. ~~**Async Tool Execution**~~ ✅ **COMPLETED** (Phase 2.2)
 
 ### Medium-term (6-12 Months)
 
-7. **Workflow Engine Integration** - Production durability
-8. **Enhanced Observability** - Enterprise requirement
-9. **Reasoning Modes** - Model optimization
+7. **Workflow Engine Integration** - Production durability (Phase 3.1) - *parked for design*
+8. **Enhanced Observability** - Enterprise requirement (Phase 3.3)
+9. ~~**Reasoning Modes**~~ ✅ **COMPLETED** (Phase 4.1)
+10. ~~**Session Serialization**~~ ✅ **COMPLETED** (Phase 4.3)
 
 ### Long-term (12+ Months)
 
-10. **Provider Expansion** - Nice-to-have for broader adoption
+10. **Provider Expansion** - Nice-to-have for broader adoption (Phase 4.2)
+11. **Role-based Agent Patterns** - High-level DSL on top of DAG (Future)
+    - Pre-built patterns: Manager-Worker, Researcher-Writer
+    - CrewAI-style crew definitions with functional purity
+
+### Completed Phases
+
+**Phase 1.1: Multi-turn Conversation Management** ✅ COMPLETED
+- Functional conversation state management
+- Context window management with pruning strategies
+- Conversation persistence (save/load)
+
+**Phase 1.2: Guardrails Framework (with LLM-as-Judge)** ✅ COMPLETED
+- Function-based guardrails (input/output validation)
+- LLM-as-Judge guardrails for tone, factuality, safety
+- Composable guardrail composition
+
+**Phase 1.3: Agent Handoffs** ✅ COMPLETED
+- Simple delegation pattern
+- Context preservation across handoffs
+- Triage routing patterns
+
+**Phase 1.4: Memory System (Core)** ✅ COMPLETED
+- Memory types (Conversation, Entity, Knowledge, UserFact, Task)
+- In-memory store implementation
+- Composable filter predicates
+- Simple memory manager with context retrieval
+- 76 tests, 3 sample applications
+
+**Phase 1.4.1: SQLite Memory Backend** ✅ COMPLETED
+- SQLite persistent storage
+- FTS5 full-text search
+- Thread-safe connection handling
+- Sample application
+
+**Phase 1.4.2: Vector Store Integration** ✅ COMPLETED
+- EmbeddingService trait and LLM/Mock implementations
+- VectorMemoryStore with semantic search
+- Cosine similarity utilities (VectorOps)
+- Batch embedding support
+- 28 tests, sample application
+
+**Phase 2.1: Event-based Streaming** ✅ COMPLETED
+- AgentEvent type hierarchy (text, tool, lifecycle, handoff events)
+- Agent.runWithEvents() for streaming callbacks
+- Agent.continueConversationWithEvents() for multi-turn
+- Agent.runCollectingEvents() for event collection
+- 18 tests, 2 sample applications
+
+**Phase 2.2: Async Tool Execution** ✅ COMPLETED
+- ToolExecutionStrategy (Sequential, Parallel, ParallelWithLimit)
+- ToolRegistry.executeAsync() and executeAll() methods
+- Agent.runWithStrategy() for parallel tool execution
+- Agent.continueConversationWithStrategy() for multi-turn
+- 11 tests, 2 sample applications
+
+**Phase 3.2: Built-in Tools Module** ✅ COMPLETED
+- DateTime, Calculator, UUID, JSON tools (core bundle)
+- File operations (read, write, list, info)
+- HTTP requests with configurable methods
+- Shell command execution with security restrictions
+- Web search (DuckDuckGo integration)
+- BuiltinTools bundles: core, safe, withFiles, development
+- 46 tests, 2 sample applications
+
+**Phase 4.1: Reasoning Modes** ✅ COMPLETED
+- ReasoningEffort sealed trait (None, Low, Medium, High)
+- CompletionOptions.withReasoning() and .withBudgetTokens()
+- OpenAI o1/o3 reasoning_effort support
+- Anthropic extended thinking with budget tokens
+- Completion.thinking for thinking content
+- TokenUsage.thinkingTokens for token tracking
+- 39 tests, 2 sample applications
+
+**Phase 4.3: Session Serialization Enhancements** ✅ COMPLETED
+- ReasoningEffort upickle ReadWriter
+- CompletionOptions serialization with reasoning/budgetTokens
+- Backward-compatible deserialization
+- Fixed ToolMessage deserialization bug
+- 33 tests in AgentStateSerializationSpec
+
+### Recommended Next Feature
+
+Based on the roadmap, the remaining features to implement are:
+
+**Phase 3.1: Workflow Engine Integration** (parked for more design)
+- Potential integration with workflow4s
+- Requires additional design work
+
+**Phase 3.3: Enhanced Observability**
+- Plugin architecture for tracing backends
+- Logfire, AgentOps, Braintrust integrations
+- Custom spans and multi-backend tracing
+
+**Phase 4.2: Provider Expansion**
+- Additional LLM providers (Cohere, Mistral, Gemini)
 
 ---
 

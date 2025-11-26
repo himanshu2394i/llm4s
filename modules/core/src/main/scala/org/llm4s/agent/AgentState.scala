@@ -299,7 +299,9 @@ object AgentState {
       "topP"             -> ujson.Num(opts.topP),
       "maxTokens"        -> opts.maxTokens.map(ujson.Num(_)).getOrElse(ujson.Null),
       "presencePenalty"  -> ujson.Num(opts.presencePenalty),
-      "frequencyPenalty" -> ujson.Num(opts.frequencyPenalty)
+      "frequencyPenalty" -> ujson.Num(opts.frequencyPenalty),
+      "reasoning"        -> opts.reasoning.map(r => writeJs(r)).getOrElse(ujson.Null),
+      "budgetTokens"     -> opts.budgetTokens.map(ujson.Num(_)).getOrElse(ujson.Null)
       // Note: tools are NOT serialized (contain function references)
     )
 
@@ -315,7 +317,15 @@ object AgentState {
         case _            => None
       },
       presencePenalty = json("presencePenalty").num,
-      frequencyPenalty = json("frequencyPenalty").num
+      frequencyPenalty = json("frequencyPenalty").num,
+      reasoning = json.obj.get("reasoning").flatMap {
+        case ujson.Null => None
+        case v          => Some(read[ReasoningEffort](v))
+      },
+      budgetTokens = json.obj.get("budgetTokens").flatMap {
+        case ujson.Num(n) => Some(n.toInt)
+        case _            => None
+      }
       // tools will be empty - caller must provide tools separately
     )
 

@@ -1,0 +1,265 @@
+package org.llm4s.agent.memory
+
+import org.scalatest.flatspec.AnyFlatSpec
+import org.scalatest.matchers.should.Matchers
+
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+
+class InMemoryStoreSpec extends AnyFlatSpec with Matchers {
+
+  val now: Instant     = Instant.now()
+  val hourAgo: Instant = now.minus(1, ChronoUnit.HOURS)
+  val dayAgo: Instant  = now.minus(1, ChronoUnit.DAYS)
+
+  def createMemory(content: String, memoryType: MemoryType = MemoryType.Conversation): Memory =
+    Memory(MemoryId.generate(), content, memoryType, Map.empty, now)
+
+  "InMemoryStore" should "start empty" in {
+    val store = InMemoryStore.empty
+    store.size shouldBe 0
+    store.all shouldBe empty
+  }
+
+  it should "store and retrieve a memory by ID" in {
+    val memory = createMemory("Test content")
+    val result = for {
+      updated   <- InMemoryStore.empty.store(memory)
+      retrieved <- updated.get(memory.id)
+    } yield retrieved
+
+    result shouldBe Right(Some(memory))
+  }
+
+  it should "return None for non-existent memory ID" in {
+    val result = InMemoryStore.empty.get(MemoryId("non-existent"))
+    result shouldBe Right(None)
+  }
+
+  it should "store multiple memories" in {
+    val memory1 = createMemory("Content 1")
+    val memory2 = createMemory("Content 2")
+    val memory3 = createMemory("Content 3")
+
+    val result = for {
+      s1    <- InMemoryStore.empty.store(memory1)
+      s2    <- s1.store(memory2)
+      s3    <- s2.store(memory3)
+      count <- s3.count()
+    } yield count
+
+    result shouldBe Right(3)
+  }
+
+  it should "recall memories with filter" in {
+    val conv1  = createMemory("Conv 1", MemoryType.Conversation)
+    val conv2  = createMemory("Conv 2", MemoryType.Conversation)
+    val entity = createMemory("Entity", MemoryType.Entity)
+
+    val result = for {
+      s1    <- InMemoryStore.empty.store(conv1)
+      s2    <- s1.store(conv2)
+      s3    <- s2.store(entity)
+      convs <- s3.recall(MemoryFilter.conversations)
+    } yield convs
+
+    result.map(_.size) shouldBe Right(2)
+    result.map(_.map(_.memoryType).toSet) shouldBe Right(Set(MemoryType.Conversation))
+  }
+
+  it should "respect limit in recall" in {
+    val memories = (1 to 10).map(i => createMemory(s"Memory $i"))
+
+    val result = for {
+      store    <- InMemoryStore.withMemories(memories)
+      recalled <- store.recall(MemoryFilter.All, limit = 5)
+    } yield recalled
+
+    result.map(_.size) shouldBe Right(5)
+  }
+
+  it should "delete a memory by ID" in {
+    val memory = createMemory("To delete")
+
+    val result = for {
+      s1        <- InMemoryStore.empty.store(memory)
+      s2        <- s1.delete(memory.id)
+      retrieved <- s2.get(memory.id)
+    } yield retrieved
+
+    result shouldBe Right(None)
+  }
+
+  it should "delete memories matching a filter" in {
+    val conv   = createMemory("Conversation", MemoryType.Conversation)
+    val entity = createMemory("Entity", MemoryType.Entity)
+
+    val result = for {
+      s1    <- InMemoryStore.empty.store(conv)
+      s2    <- s1.store(entity)
+      s3    <- s2.deleteMatching(MemoryFilter.conversations)
+      count <- s3.count()
+    } yield count
+
+    result shouldBe Right(1)
+  }
+
+  it should "update a memory" in {
+    val original = createMemory("Original")
+
+    val result = for {
+      s1      <- InMemoryStore.empty.store(original)
+      s2      <- s1.update(original.id, _.withImportance(0.9))
+      updated <- s2.get(original.id)
+    } yield updated.flatMap(_.importance)
+
+    result shouldBe Right(Some(0.9))
+  }
+
+  it should "return error when updating non-existent memory" in {
+    val result = InMemoryStore.empty.update(MemoryId("non-existent"), identity)
+    result.isLeft shouldBe true
+  }
+
+  it should "search memories by keyword" in {
+    val memory1 = createMemory("Scala is a programming language")
+    val memory2 = createMemory("Java runs on the JVM")
+    val memory3 = createMemory("Scala also runs on the JVM")
+
+    val result = for {
+      store  <- InMemoryStore.withMemories(Seq(memory1, memory2, memory3))
+      scored <- store.search("Scala JVM", topK = 10)
+    } yield scored
+
+    result.isRight shouldBe true
+    val scored = result.toOption.get
+    scored.size shouldBe 3
+
+    // "Scala also runs on the JVM" should score highest (matches both terms)
+    scored.head.memory.content should include("Scala")
+    scored.head.memory.content should include("JVM")
+  }
+
+  it should "return recent memories in descending order" in {
+    val old    = Memory(MemoryId.generate(), "Old", MemoryType.Conversation, Map.empty, dayAgo)
+    val medium = Memory(MemoryId.generate(), "Medium", MemoryType.Conversation, Map.empty, hourAgo)
+    val recent = Memory(MemoryId.generate(), "Recent", MemoryType.Conversation, Map.empty, now)
+
+    val result = for {
+      store   <- InMemoryStore.withMemories(Seq(old, medium, recent))
+      recents <- store.recent(limit = 2)
+    } yield recents
+
+    result.map(_.map(_.content)) shouldBe Right(Seq("Recent", "Medium"))
+  }
+
+  it should "get entity memories" in {
+    val entityId     = EntityId.fromName("Test Entity")
+    val entityMemory = Memory.forEntity(entityId, "Test Entity", "A fact", "thing")
+    val otherMemory  = createMemory("Other")
+
+    val result = for {
+      s1       <- InMemoryStore.empty.store(entityMemory)
+      s2       <- s1.store(otherMemory)
+      entities <- s2.getEntityMemories(entityId)
+    } yield entities
+
+    result.map(_.size) shouldBe Right(1)
+    result.map(_.head.content) shouldBe Right("A fact")
+  }
+
+  it should "get conversation history in chronological order" in {
+    val msg1 = Memory(
+      MemoryId.generate(),
+      "First",
+      MemoryType.Conversation,
+      Map("conversation_id" -> "conv-1"),
+      dayAgo
+    )
+    val msg2 = Memory(
+      MemoryId.generate(),
+      "Second",
+      MemoryType.Conversation,
+      Map("conversation_id" -> "conv-1"),
+      hourAgo
+    )
+    val msg3 = Memory(
+      MemoryId.generate(),
+      "Third",
+      MemoryType.Conversation,
+      Map("conversation_id" -> "conv-1"),
+      now
+    )
+
+    val result = for {
+      store <- InMemoryStore.withMemories(Seq(msg1, msg3, msg2)) // Insert out of order
+      conv  <- store.getConversation("conv-1")
+    } yield conv
+
+    result.map(_.map(_.content)) shouldBe Right(Seq("First", "Second", "Third"))
+  }
+
+  it should "clear all memories" in {
+    val result = for {
+      store   <- InMemoryStore.withMemories((1 to 5).map(i => createMemory(s"Memory $i")))
+      cleared <- store.clear()
+      count   <- cleared.count()
+    } yield count
+
+    result shouldBe Right(0)
+  }
+
+  it should "check if memory exists" in {
+    val memory = createMemory("Test")
+
+    val result = for {
+      store     <- InMemoryStore.empty.store(memory)
+      exists    <- store.exists(memory.id)
+      notExists <- store.exists(MemoryId("non-existent"))
+    } yield (exists, notExists)
+
+    result shouldBe Right((true, false))
+  }
+
+  it should "enforce max memories limit" in {
+    val config = MemoryStoreConfig(maxMemories = Some(5))
+    val store  = InMemoryStore(config)
+
+    val memories = (1 to 10).map { i =>
+      Memory(
+        MemoryId.generate(),
+        s"Memory $i",
+        MemoryType.Conversation,
+        Map.empty,
+        now.plus(i, ChronoUnit.MINUTES)
+      )
+    }
+
+    val result = memories.foldLeft[Either[_, MemoryStore]](Right(store))((acc, m) => acc.flatMap(_.store(m)))
+
+    result.map {
+      case ims: InMemoryStore => ims.size
+      case _                  => -1
+    } shouldBe Right(5)
+
+    // Should keep the 5 most recent
+    result.map {
+      case ims: InMemoryStore => ims.all.map(_.content).toSet
+      case _                  => Set.empty[String]
+    } shouldBe Right(Set("Memory 6", "Memory 7", "Memory 8", "Memory 9", "Memory 10"))
+  }
+
+  it should "get important memories" in {
+    val low     = createMemory("Low importance").withImportance(0.2)
+    val high    = createMemory("High importance").withImportance(0.8)
+    val noScore = createMemory("No score")
+
+    val result = for {
+      store     <- InMemoryStore.withMemories(Seq(low, high, noScore))
+      important <- store.important(threshold = 0.5)
+    } yield important
+
+    result.map(_.size) shouldBe Right(1)
+    result.map(_.head.content) shouldBe Right("High importance")
+  }
+}

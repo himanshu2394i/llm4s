@@ -138,4 +138,111 @@ class StreamingAccumulatorTest extends AnyFunSuite with Matchers {
     toolCalls.head.id shouldBe "tool-1"
     toolCalls.head.name shouldBe "get_weather"
   }
+
+  // ===========================================
+  // Thinking content tests (Phase 4.1)
+  // ===========================================
+
+  test("should accumulate thinking content from chunks") {
+    val accumulator = StreamingAccumulator.create()
+
+    accumulator.addChunk(StreamedChunk("msg-1", None, None, None, Some("Let me ")))
+    accumulator.addChunk(StreamedChunk("msg-1", None, None, None, Some("think about ")))
+    accumulator.addChunk(StreamedChunk("msg-1", None, None, None, Some("this...")))
+
+    accumulator.getCurrentThinking shouldBe Some("Let me think about this...")
+    accumulator.hasThinking shouldBe true
+  }
+
+  test("should return None for thinking when no thinking content") {
+    val accumulator = StreamingAccumulator.create()
+
+    accumulator.addChunk(StreamedChunk("msg-1", Some("content"), None, None, None))
+
+    accumulator.getCurrentThinking shouldBe None
+    accumulator.hasThinking shouldBe false
+  }
+
+  test("should handle mixed content and thinking chunks") {
+    val accumulator = StreamingAccumulator.create()
+
+    // Thinking comes first
+    accumulator.addChunk(StreamedChunk("msg-1", None, None, None, Some("Thinking...")))
+    // Then content
+    accumulator.addChunk(StreamedChunk("msg-1", Some("The answer is 42."), None, None, None))
+
+    accumulator.getCurrentThinking shouldBe Some("Thinking...")
+    accumulator.getCurrentContent shouldBe "The answer is 42."
+  }
+
+  test("should include thinking in completion") {
+    val accumulator = StreamingAccumulator.create()
+
+    accumulator.addChunk(StreamedChunk("msg-1", None, None, None, Some("Let me calculate...")))
+    accumulator.addChunk(StreamedChunk("msg-1", Some("The answer is 42."), None, None, None))
+    accumulator.addChunk(StreamedChunk("msg-1", None, None, Some("stop"), None))
+
+    val completion = accumulator.toCompletion
+    completion.isRight shouldBe true
+
+    val comp = completion.toOption.get
+    comp.thinking shouldBe Some("Let me calculate...")
+    comp.content shouldBe "The answer is 42."
+    comp.hasThinking shouldBe true
+  }
+
+  test("should add thinking delta directly") {
+    val accumulator = StreamingAccumulator.create()
+
+    accumulator.addThinkingDelta("First part. ")
+    accumulator.addThinkingDelta("Second part.")
+
+    accumulator.getCurrentThinking shouldBe Some("First part. Second part.")
+  }
+
+  test("should track thinking tokens") {
+    val accumulator = StreamingAccumulator.create()
+
+    accumulator.updateTokensWithThinking(100, 50, 200)
+    accumulator.addChunk(StreamedChunk("msg-1", Some("response"), None, None, Some("thinking")))
+
+    val completion = accumulator.toCompletion
+    completion.isRight shouldBe true
+
+    val usage = completion.toOption.get.usage
+    usage.isDefined shouldBe true
+    usage.get.promptTokens shouldBe 100
+    usage.get.completionTokens shouldBe 50
+    usage.get.thinkingTokens shouldBe Some(200)
+    usage.get.totalOutputTokens shouldBe 250
+    usage.get.totalTokens shouldBe 350
+  }
+
+  test("should include thinking tokens in snapshot") {
+    val accumulator = StreamingAccumulator.create()
+
+    accumulator.addChunk(StreamedChunk("msg-1", Some("content"), None, None, Some("thinking")))
+    accumulator.updateTokensWithThinking(10, 5, 20)
+
+    val snapshot = accumulator.snapshot()
+
+    snapshot.content shouldBe "content"
+    snapshot.thinking shouldBe Some("thinking")
+    snapshot.thinkingTokens shouldBe 20
+  }
+
+  test("should clear thinking content on clear") {
+    val accumulator = StreamingAccumulator.create()
+
+    accumulator.addChunk(StreamedChunk("msg-1", Some("content"), None, None, Some("thinking")))
+    accumulator.updateTokensWithThinking(10, 5, 20)
+
+    accumulator.getCurrentThinking shouldBe Some("thinking")
+    accumulator.hasThinking shouldBe true
+
+    accumulator.clear()
+
+    accumulator.getCurrentThinking shouldBe None
+    accumulator.hasThinking shouldBe false
+  }
 }

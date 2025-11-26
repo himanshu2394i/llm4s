@@ -107,6 +107,7 @@ lazy val commonSettings = Seq(
     Deps.scalamock % Test,
     Deps.fansi,
     Deps.postgres,
+    Deps.sqlite,
     Deps.config,
     Deps.hikariCP
   )

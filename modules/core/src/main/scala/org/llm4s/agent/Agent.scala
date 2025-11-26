@@ -1,14 +1,19 @@
 package org.llm4s.agent
 
 import org.llm4s.agent.guardrails.{ CompositeGuardrail, InputGuardrail, OutputGuardrail }
+import org.llm4s.agent.streaming.AgentEvent
 import org.llm4s.core.safety.Safety
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.model._
+import org.llm4s.llmconnect.streaming.StreamingAccumulator
 import org.llm4s.toolapi._
 import org.llm4s.types.Result
 import org.slf4j.LoggerFactory
 
+import java.time.Instant
 import scala.annotation.tailrec
+import scala.concurrent.{ Await, ExecutionContext }
+import scala.concurrent.duration._
 import scala.util.{ Failure, Success, Try }
 
 /**
@@ -312,6 +317,77 @@ class Agent(client: LLMClient) {
     }
 
     // Add the tool messages to the conversation
+    state.addMessages(toolMessages)
+  }
+
+  /**
+   * Process tool calls asynchronously with configurable execution strategy.
+   *
+   * @param state Current agent state
+   * @param toolCalls Tool calls to process
+   * @param strategy Execution strategy (Sequential, Parallel, ParallelWithLimit)
+   * @param debug Enable debug logging
+   * @param ec ExecutionContext for async execution
+   * @return Updated agent state with tool results
+   */
+  private def processToolCallsAsync(
+    state: AgentState,
+    toolCalls: Seq[ToolCall],
+    strategy: ToolExecutionStrategy,
+    debug: Boolean
+  )(implicit ec: ExecutionContext): AgentState = {
+    val toolRegistry = state.tools
+
+    if (debug) {
+      logger.info("[DEBUG] processToolCallsAsync: Processing {} tool calls with strategy {}", toolCalls.size, strategy)
+    }
+
+    // Create requests
+    val requests   = toolCalls.map(tc => ToolCallRequest(tc.name, tc.arguments))
+    val startTimes = toolCalls.map(_ => System.currentTimeMillis())
+
+    // Execute with strategy
+    val resultsFuture = toolRegistry.executeAll(requests, strategy)
+
+    // Wait for results (with a reasonable timeout)
+    val timeout = 5.minutes
+    val results = Await.result(resultsFuture, timeout)
+
+    // Create tool messages from results
+    val toolMessages = toolCalls.zip(results).zipWithIndex.map { case ((toolCall, result), index) =>
+      val duration = System.currentTimeMillis() - startTimes(index)
+
+      val resultContent = result match {
+        case Right(json) =>
+          val jsonStr = json.render()
+          if (debug) {
+            logger.info("[DEBUG] Tool {} SUCCESS in {}ms", toolCall.name, duration)
+          } else {
+            logger.info("Tool {} completed successfully in {}ms", toolCall.name, duration)
+          }
+          jsonStr
+
+        case Left(error) =>
+          val errorMessage = error.getFormattedMessage
+          if (debug) {
+            logger.error("[DEBUG] Tool {} FAILED in {}ms: {}", toolCall.name, duration, errorMessage)
+          }
+          val escapedMessage = errorMessage
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+          s"""{ "isError": true, "error": "$escapedMessage" }"""
+      }
+
+      ToolMessage(resultContent, toolCall.id)
+    }
+
+    if (debug) {
+      logger.info("[DEBUG] All {} tool calls processed with strategy {}", toolCalls.size, strategy)
+    }
+
     state.addMessages(toolMessages)
   }
 
@@ -969,5 +1045,684 @@ class Agent(client: LLMClient) {
         )
       }
     }
+  }
+
+  // ============================================================
+  // Streaming Event-based Execution
+  // ============================================================
+
+  /**
+   * Runs the agent with streaming events for real-time progress tracking.
+   *
+   * This method provides fine-grained visibility into agent execution through
+   * a callback that receives [[AgentEvent]] instances as they occur. Events include:
+   * - Token-level streaming during LLM generation
+   * - Tool call start/complete notifications
+   * - Agent lifecycle events (start, step, complete, fail)
+   *
+   * @param query The user query to process
+   * @param tools The registry of available tools
+   * @param onEvent Callback invoked for each event during execution
+   * @param inputGuardrails Validate query before processing (default: none)
+   * @param outputGuardrails Validate response before returning (default: none)
+   * @param handoffs Available handoffs (default: none)
+   * @param maxSteps Optional limit on the number of steps to execute
+   * @param traceLogPath Optional path to write a markdown trace file
+   * @param systemPromptAddition Optional additional text to append to the default system prompt
+   * @param completionOptions Optional completion options for LLM calls
+   * @param debug Enable detailed debug logging
+   * @return Either an error or the final agent state
+   *
+   * @example
+   * {{{
+   * import org.llm4s.agent.streaming.AgentEvent._
+   *
+   * agent.runWithEvents(
+   *   query = "What's the weather?",
+   *   tools = weatherTools,
+   *   onEvent = {
+   *     case TextDelta(delta, _) => print(delta)
+   *     case ToolCallStarted(_, name, _, _) => println(s"[Calling $name]")
+   *     case AgentCompleted(_, steps, ms, _) => println(s"Done in $steps steps")
+   *     case _ =>
+   *   }
+   * )
+   * }}}
+   */
+  def runWithEvents(
+    query: String,
+    tools: ToolRegistry,
+    onEvent: AgentEvent => Unit,
+    inputGuardrails: Seq[InputGuardrail] = Seq.empty,
+    outputGuardrails: Seq[OutputGuardrail] = Seq.empty,
+    handoffs: Seq[Handoff] = Seq.empty,
+    maxSteps: Option[Int] = None,
+    traceLogPath: Option[String] = None,
+    systemPromptAddition: Option[String] = None,
+    completionOptions: CompletionOptions = CompletionOptions(),
+    debug: Boolean = false
+  ): Result[AgentState] = {
+    val startTime = System.currentTimeMillis()
+
+    // Emit input guardrail events before validation
+    inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailStarted(g.name, Instant.now())))
+
+    validateInput(query, inputGuardrails).flatMap { validatedQuery =>
+      // Emit input guardrail completion events
+      inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = true, Instant.now())))
+
+      // Emit start event
+      onEvent(AgentEvent.agentStarted(validatedQuery, tools.tools.size))
+
+      // Initialize and run with streaming
+      val initialState = initialize(validatedQuery, tools, handoffs, systemPromptAddition, completionOptions)
+
+      runWithEventsInternal(
+        initialState,
+        onEvent,
+        maxSteps.getOrElse(10),
+        0,
+        startTime,
+        traceLogPath,
+        debug
+      ).flatMap { finalState =>
+        // Emit output guardrail events
+        outputGuardrails.foreach(g => onEvent(AgentEvent.OutputGuardrailStarted(g.name, Instant.now())))
+
+        validateOutput(finalState, outputGuardrails).map { validatedState =>
+          outputGuardrails.foreach { g =>
+            onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = true, Instant.now()))
+          }
+          validatedState
+        }
+      }
+    }
+  }
+
+  /**
+   * Internal streaming execution loop.
+   */
+  private def runWithEventsInternal(
+    state: AgentState,
+    onEvent: AgentEvent => Unit,
+    maxSteps: Int,
+    currentStep: Int,
+    startTime: Long,
+    traceLogPath: Option[String],
+    debug: Boolean
+  ): Result[AgentState] = {
+
+    // Check step limit
+    if (
+      currentStep >= maxSteps && (state.status == AgentStatus.InProgress || state.status == AgentStatus.WaitingForTools)
+    ) {
+      val failedState = state.withStatus(AgentStatus.Failed("Maximum step limit reached"))
+      onEvent(
+        AgentEvent.agentFailed(
+          org.llm4s.error.ProcessingError("agent-execution", "Maximum step limit reached"),
+          Some(currentStep)
+        )
+      )
+      traceLogPath.foreach(path => writeTraceLog(failedState, path))
+      return Right(failedState)
+    }
+
+    state.status match {
+      case AgentStatus.InProgress =>
+        // Emit step started
+        onEvent(AgentEvent.stepStarted(currentStep))
+
+        // Run streaming completion
+        val options     = state.completionOptions.copy(tools = state.tools.tools)
+        val accumulator = StreamingAccumulator.create()
+
+        val streamResult = client.streamComplete(
+          state.toApiConversation,
+          options,
+          onChunk = { chunk =>
+            // Emit text deltas
+            chunk.content.foreach(delta => onEvent(AgentEvent.textDelta(delta)))
+            // Note: Tool calls are typically emitted when complete, not incrementally
+            accumulator.addChunk(chunk)
+          }
+        )
+
+        streamResult match {
+          case Right(completion) =>
+            // Emit text complete
+            if (completion.content.nonEmpty) {
+              onEvent(AgentEvent.textComplete(completion.content))
+            }
+
+            val updatedState = state
+              .log(s"[assistant] text: ${completion.content}")
+              .addMessage(completion.message)
+
+            completion.message.toolCalls match {
+              case Seq() =>
+                // No tool calls - complete
+                val totalDuration = System.currentTimeMillis() - startTime
+                onEvent(AgentEvent.stepCompleted(currentStep, hasToolCalls = false))
+
+                val finalState = updatedState.withStatus(AgentStatus.Complete)
+                onEvent(AgentEvent.agentCompleted(finalState, currentStep + 1, totalDuration))
+
+                traceLogPath.foreach(path => writeTraceLog(finalState, path))
+                Right(finalState)
+
+              case toolCalls =>
+                // Process tool calls with events
+                onEvent(AgentEvent.stepCompleted(currentStep, hasToolCalls = true))
+
+                val stateAfterTools = processToolCallsWithEvents(
+                  updatedState.withStatus(AgentStatus.WaitingForTools),
+                  toolCalls,
+                  onEvent,
+                  debug
+                )
+
+                // Check for handoffs
+                detectHandoff(stateAfterTools) match {
+                  case Some((handoff, reason)) =>
+                    onEvent(
+                      AgentEvent.HandoffStarted(
+                        handoff.handoffName,
+                        Some(reason),
+                        handoff.preserveContext,
+                        Instant.now()
+                      )
+                    )
+                    // Execute handoff (note: target agent won't have streaming unless it also uses runWithEvents)
+                    val handoffResult =
+                      executeHandoff(
+                        stateAfterTools,
+                        handoff,
+                        Some(reason),
+                        Some(maxSteps - currentStep),
+                        traceLogPath,
+                        debug
+                      )
+                    onEvent(AgentEvent.HandoffCompleted(handoff.handoffName, handoffResult.isRight, Instant.now()))
+                    handoffResult
+
+                  case None =>
+                    // Continue to next step
+                    runWithEventsInternal(
+                      stateAfterTools.withStatus(AgentStatus.InProgress),
+                      onEvent,
+                      maxSteps,
+                      currentStep + 1,
+                      startTime,
+                      traceLogPath,
+                      debug
+                    )
+                }
+            }
+
+          case Left(error) =>
+            onEvent(AgentEvent.agentFailed(error, Some(currentStep)))
+            Left(error)
+        }
+
+      case AgentStatus.Complete | AgentStatus.Failed(_) =>
+        // Already done
+        Right(state)
+
+      case AgentStatus.WaitingForTools =>
+        // Shouldn't happen in this flow, but handle it
+        Right(state)
+
+      case AgentStatus.HandoffRequested(handoff, reason) =>
+        // Handle handoff
+        onEvent(AgentEvent.HandoffStarted(handoff.handoffName, reason, handoff.preserveContext, Instant.now()))
+        val handoffResult =
+          executeHandoff(state, handoff, reason, Some(maxSteps - currentStep), traceLogPath, debug)
+        onEvent(AgentEvent.HandoffCompleted(handoff.handoffName, handoffResult.isRight, Instant.now()))
+        handoffResult
+    }
+  }
+
+  /**
+   * Process tool calls with event emission.
+   */
+  private def processToolCallsWithEvents(
+    state: AgentState,
+    toolCalls: Seq[ToolCall],
+    onEvent: AgentEvent => Unit,
+    debug: Boolean
+  ): AgentState = {
+    val toolRegistry = state.tools
+
+    val toolMessages = toolCalls.map { toolCall =>
+      val toolStartTime = System.currentTimeMillis()
+
+      // Emit tool started
+      onEvent(AgentEvent.toolStarted(toolCall.id, toolCall.name, toolCall.arguments.render()))
+
+      val request = ToolCallRequest(toolCall.name, toolCall.arguments)
+      val result  = toolRegistry.execute(request)
+
+      val toolEndTime = System.currentTimeMillis()
+      val duration    = toolEndTime - toolStartTime
+
+      val (resultContent, success) = result match {
+        case Right(json) =>
+          val jsonStr = json.render()
+          if (debug) {
+            logger.info("[DEBUG] Tool {} SUCCESS in {}ms", toolCall.name, duration)
+          }
+          (jsonStr, true)
+
+        case Left(error) =>
+          val errorMessage   = error.getFormattedMessage
+          val escapedMessage = errorMessage.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+          val errorJson      = s"""{ "isError": true, "error": "$escapedMessage" }"""
+          if (debug) {
+            logger.error("[DEBUG] Tool {} FAILED in {}ms: {}", toolCall.name, duration, errorMessage)
+          }
+          (errorJson, false)
+      }
+
+      // Emit tool completed or failed
+      if (success) {
+        onEvent(AgentEvent.toolCompleted(toolCall.id, toolCall.name, resultContent, success = true, duration))
+      } else {
+        onEvent(AgentEvent.ToolCallFailed(toolCall.id, toolCall.name, resultContent, Instant.now()))
+      }
+
+      ToolMessage(resultContent, toolCall.id)
+    }
+
+    state.addMessages(toolMessages)
+  }
+
+  /**
+   * Continue a conversation with streaming events.
+   *
+   * @param previousState The previous agent state (must be Complete or Failed)
+   * @param newUserMessage The new user message to process
+   * @param onEvent Callback for streaming events
+   * @param inputGuardrails Validate new message before processing
+   * @param outputGuardrails Validate response before returning
+   * @param maxSteps Optional limit on reasoning steps
+   * @param traceLogPath Optional path for trace logging
+   * @param contextWindowConfig Optional configuration for context pruning
+   * @param debug Enable debug logging
+   * @return Result containing the new agent state
+   */
+  def continueConversationWithEvents(
+    previousState: AgentState,
+    newUserMessage: String,
+    onEvent: AgentEvent => Unit,
+    inputGuardrails: Seq[InputGuardrail] = Seq.empty,
+    outputGuardrails: Seq[OutputGuardrail] = Seq.empty,
+    maxSteps: Option[Int] = None,
+    traceLogPath: Option[String] = None,
+    contextWindowConfig: Option[ContextWindowConfig] = None,
+    debug: Boolean = false
+  ): Result[AgentState] = {
+    import org.llm4s.error.ValidationError
+
+    val startTime = System.currentTimeMillis()
+
+    // Emit input guardrail events
+    inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailStarted(g.name, Instant.now())))
+
+    validateInput(newUserMessage, inputGuardrails).flatMap { validatedMessage =>
+      inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = true, Instant.now())))
+
+      // Validate state and continue
+      val stateResult: Result[AgentState] = previousState.status match {
+        case AgentStatus.Complete | AgentStatus.Failed(_) =>
+          // Emit start event
+          onEvent(AgentEvent.agentStarted(validatedMessage, previousState.tools.tools.size))
+
+          val stateWithNewMessage = previousState.copy(
+            conversation = previousState.conversation.addMessage(UserMessage(validatedMessage)),
+            status = AgentStatus.InProgress,
+            logs = Seq.empty
+          )
+
+          val stateToRun = contextWindowConfig match {
+            case Some(config) => AgentState.pruneConversation(stateWithNewMessage, config)
+            case None         => stateWithNewMessage
+          }
+
+          runWithEventsInternal(
+            stateToRun,
+            onEvent,
+            maxSteps.getOrElse(10),
+            0,
+            startTime,
+            traceLogPath,
+            debug
+          )
+
+        case _ =>
+          Left(
+            ValidationError.invalid(
+              "agentState",
+              s"Cannot continue from incomplete state: ${previousState.status}"
+            )
+          )
+      }
+
+      stateResult.flatMap { finalState =>
+        // Emit output guardrail events
+        outputGuardrails.foreach(g => onEvent(AgentEvent.OutputGuardrailStarted(g.name, Instant.now())))
+
+        validateOutput(finalState, outputGuardrails).map { validatedState =>
+          outputGuardrails.foreach { g =>
+            onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = true, Instant.now()))
+          }
+          validatedState
+        }
+      }
+    }
+  }
+
+  /**
+   * Collect all events during execution into a sequence.
+   *
+   * Convenience method that runs the agent and returns both the final state
+   * and all events that were emitted during execution.
+   *
+   * @param query The user query to process
+   * @param tools The registry of available tools
+   * @param maxSteps Optional limit on the number of steps
+   * @param systemPromptAddition Optional system prompt addition
+   * @param completionOptions Completion options
+   * @param debug Enable debug logging
+   * @return Tuple of (final state, all events)
+   */
+  def runCollectingEvents(
+    query: String,
+    tools: ToolRegistry,
+    maxSteps: Option[Int] = None,
+    systemPromptAddition: Option[String] = None,
+    completionOptions: CompletionOptions = CompletionOptions(),
+    debug: Boolean = false
+  ): Result[(AgentState, Seq[AgentEvent])] = {
+    val events = scala.collection.mutable.ArrayBuffer[AgentEvent]()
+
+    runWithEvents(
+      query = query,
+      tools = tools,
+      onEvent = events += _,
+      maxSteps = maxSteps,
+      systemPromptAddition = systemPromptAddition,
+      completionOptions = completionOptions,
+      debug = debug
+    ).map(state => (state, events.toSeq))
+  }
+
+  // ============================================================
+  // Async Tool Execution with Configurable Strategy
+  // ============================================================
+
+  /**
+   * Runs the agent with a configurable tool execution strategy.
+   *
+   * This method enables parallel or rate-limited execution of multiple tool calls,
+   * which can significantly improve performance when the LLM requests multiple
+   * independent tool calls (e.g., fetching weather for multiple cities).
+   *
+   * @param query The user query to process
+   * @param tools The registry of available tools
+   * @param toolExecutionStrategy Strategy for executing multiple tool calls:
+   *                              - Sequential: One at a time (default, safest)
+   *                              - Parallel: All tools simultaneously
+   *                              - ParallelWithLimit(n): Max n tools concurrently
+   * @param inputGuardrails Validate query before processing (default: none)
+   * @param outputGuardrails Validate response before returning (default: none)
+   * @param handoffs Available handoffs (default: none)
+   * @param maxSteps Optional limit on the number of steps to execute
+   * @param traceLogPath Optional path to write a markdown trace file
+   * @param systemPromptAddition Optional additional text to append to the default system prompt
+   * @param completionOptions Optional completion options for LLM calls
+   * @param debug Enable detailed debug logging
+   * @param ec ExecutionContext for async operations
+   * @return Either an error or the final agent state
+   *
+   * @example
+   * {{{
+   * import scala.concurrent.ExecutionContext.Implicits.global
+   *
+   * // Execute weather lookups in parallel
+   * val result = agent.runWithStrategy(
+   *   query = "Get weather in London, Paris, and Tokyo",
+   *   tools = weatherTools,
+   *   toolExecutionStrategy = ToolExecutionStrategy.Parallel
+   * )
+   *
+   * // Limit concurrency to avoid rate limits
+   * val result = agent.runWithStrategy(
+   *   query = "Search for 10 topics",
+   *   tools = searchTools,
+   *   toolExecutionStrategy = ToolExecutionStrategy.ParallelWithLimit(3)
+   * )
+   * }}}
+   */
+  def runWithStrategy(
+    query: String,
+    tools: ToolRegistry,
+    toolExecutionStrategy: ToolExecutionStrategy = ToolExecutionStrategy.Sequential,
+    inputGuardrails: Seq[InputGuardrail] = Seq.empty,
+    outputGuardrails: Seq[OutputGuardrail] = Seq.empty,
+    handoffs: Seq[Handoff] = Seq.empty,
+    maxSteps: Option[Int] = None,
+    traceLogPath: Option[String] = None,
+    systemPromptAddition: Option[String] = None,
+    completionOptions: CompletionOptions = CompletionOptions(),
+    debug: Boolean = false
+  )(implicit ec: ExecutionContext): Result[AgentState] =
+    for {
+      // 1. Validate input
+      validatedQuery <- validateInput(query, inputGuardrails)
+
+      // 2. Initialize and run agent with strategy
+      _ = if (debug) {
+        logger.info("[DEBUG] ========================================")
+        logger.info("[DEBUG] Initializing agent with tool execution strategy: {}", toolExecutionStrategy)
+        logger.info("[DEBUG] Query: {}", validatedQuery)
+        logger.info("[DEBUG] Tools: {}", tools.tools.map(_.name).mkString(", "))
+        logger.info("[DEBUG] ========================================")
+      }
+      initialState = initialize(validatedQuery, tools, handoffs, systemPromptAddition, completionOptions)
+      finalState <- runWithStrategyInternal(initialState, toolExecutionStrategy, maxSteps, traceLogPath, debug)
+
+      // 3. Validate output
+      validatedState <- validateOutput(finalState, outputGuardrails)
+    } yield validatedState
+
+  /**
+   * Internal method for running agent with a specific tool execution strategy.
+   */
+  private def runWithStrategyInternal(
+    initialState: AgentState,
+    strategy: ToolExecutionStrategy,
+    maxSteps: Option[Int],
+    traceLogPath: Option[String],
+    debug: Boolean
+  )(implicit ec: ExecutionContext): Result[AgentState] = {
+    if (debug) {
+      logger.info("[DEBUG] ========================================")
+      logger.info("[DEBUG] Starting Agent.runWithStrategy")
+      logger.info("[DEBUG] Strategy: {}", strategy)
+      logger.info("[DEBUG] Max steps: {}", maxSteps.getOrElse("unlimited"))
+      logger.info("[DEBUG] ========================================")
+    }
+
+    // Write initial state if tracing is enabled
+    traceLogPath.foreach(path => writeTraceLog(initialState, path))
+
+    @tailrec
+    def runUntilCompletion(
+      state: AgentState,
+      stepsRemaining: Option[Int] = maxSteps,
+      iteration: Int = 1
+    ): Result[AgentState] =
+      (state.status, stepsRemaining) match {
+        // Check for step limit
+        case (s, Some(0)) if s == AgentStatus.InProgress || s == AgentStatus.WaitingForTools =>
+          if (debug) {
+            logger.warn("[DEBUG] Step limit reached!")
+          }
+          val updatedState =
+            state.log("[system] Step limit reached").withStatus(AgentStatus.Failed("Maximum step limit reached"))
+          traceLogPath.foreach(path => writeTraceLog(updatedState, path))
+          Right(updatedState)
+
+        // InProgress: Request LLM completion
+        case (AgentStatus.InProgress, _) =>
+          if (debug) {
+            logger.info("[DEBUG] ITERATION {}: InProgress -> requesting LLM completion", iteration)
+          }
+
+          runStep(state, debug) match {
+            case Right(newState) =>
+              val shouldDecrement = newState.status == AgentStatus.WaitingForTools
+              val nextSteps       = if (shouldDecrement) stepsRemaining.map(_ - 1) else stepsRemaining
+              traceLogPath.foreach(path => writeTraceLog(newState, path))
+              runUntilCompletion(newState, nextSteps, iteration + 1)
+
+            case Left(error) =>
+              if (debug) {
+                logger.error("[DEBUG] LLM completion failed: {}", error.message)
+              }
+              Left(error)
+          }
+
+        // WaitingForTools: Process tools with configured strategy
+        case (AgentStatus.WaitingForTools, _) =>
+          val assistantMessageOpt = state.conversation.messages.reverse
+            .collectFirst { case msg: AssistantMessage if msg.toolCalls.nonEmpty => msg }
+
+          assistantMessageOpt match {
+            case Some(assistantMessage) =>
+              val toolNames = assistantMessage.toolCalls.map(_.name).mkString(", ")
+
+              if (debug) {
+                logger.info(
+                  "[DEBUG] ITERATION {}: WaitingForTools -> processing {} tools with {}",
+                  iteration,
+                  assistantMessage.toolCalls.size,
+                  strategy
+                )
+                logger.info("[DEBUG] Tools: {}", toolNames)
+              }
+
+              Try {
+                processToolCallsAsync(
+                  state.log(s"[tools] executing ${assistantMessage.toolCalls.size} tools ($toolNames) with $strategy"),
+                  assistantMessage.toolCalls,
+                  strategy,
+                  debug
+                )
+              } match {
+                case Success(newState) =>
+                  // Check for handoffs
+                  detectHandoff(newState) match {
+                    case Some((handoff, reason)) =>
+                      if (debug) {
+                        logger.info("[DEBUG] Handoff detected: {}", handoff.handoffName)
+                      }
+                      Right(newState.withStatus(AgentStatus.HandoffRequested(handoff, Some(reason))))
+
+                    case None =>
+                      if (debug) {
+                        logger.info("[DEBUG] Tools processed -> InProgress")
+                      }
+                      traceLogPath.foreach(path => writeTraceLog(newState, path))
+                      runUntilCompletion(newState.withStatus(AgentStatus.InProgress), stepsRemaining, iteration + 1)
+                  }
+
+                case Failure(error) =>
+                  logger.error("Tool processing failed: {}", error.getMessage)
+                  Right(state.withStatus(AgentStatus.Failed(error.getMessage)))
+              }
+
+            case None =>
+              Right(state.withStatus(AgentStatus.Failed("No tool calls found in conversation")))
+          }
+
+        case (AgentStatus.HandoffRequested(handoff, reason), _) =>
+          if (debug) {
+            logger.info("[DEBUG] Executing handoff: {}", handoff.handoffName)
+          }
+          traceLogPath.foreach(path => writeTraceLog(state, path))
+          executeHandoff(state, handoff, reason, maxSteps, traceLogPath, debug)
+
+        case (_, _) =>
+          if (debug) {
+            logger.info("[DEBUG] Agent completed with status: {}", state.status)
+          }
+          traceLogPath.foreach(path => writeTraceLog(state, path))
+          Right(state)
+      }
+
+    runUntilCompletion(initialState)
+  }
+
+  /**
+   * Continue a conversation with a configurable tool execution strategy.
+   *
+   * @param previousState The previous agent state (must be Complete or Failed)
+   * @param newUserMessage The new user message to process
+   * @param toolExecutionStrategy Strategy for executing multiple tool calls
+   * @param inputGuardrails Validate new message before processing
+   * @param outputGuardrails Validate response before returning
+   * @param maxSteps Optional limit on reasoning steps for this turn
+   * @param traceLogPath Optional path for trace logging
+   * @param contextWindowConfig Optional configuration for automatic context pruning
+   * @param debug Enable debug logging
+   * @param ec ExecutionContext for async operations
+   * @return Result containing the new agent state after processing the message
+   */
+  def continueConversationWithStrategy(
+    previousState: AgentState,
+    newUserMessage: String,
+    toolExecutionStrategy: ToolExecutionStrategy = ToolExecutionStrategy.Sequential,
+    inputGuardrails: Seq[InputGuardrail] = Seq.empty,
+    outputGuardrails: Seq[OutputGuardrail] = Seq.empty,
+    maxSteps: Option[Int] = None,
+    traceLogPath: Option[String] = None,
+    contextWindowConfig: Option[ContextWindowConfig] = None,
+    debug: Boolean = false
+  )(implicit ec: ExecutionContext): Result[AgentState] = {
+    import org.llm4s.error.ValidationError
+
+    for {
+      // 1. Validate input
+      validatedMessage <- validateInput(newUserMessage, inputGuardrails)
+
+      // 2. Validate previous state and continue
+      finalState <- previousState.status match {
+        case AgentStatus.Complete | AgentStatus.Failed(_) =>
+          val stateWithNewMessage = previousState.copy(
+            conversation = previousState.conversation.addMessage(UserMessage(validatedMessage)),
+            status = AgentStatus.InProgress,
+            logs = Seq.empty
+          )
+
+          val stateToRun = contextWindowConfig match {
+            case Some(config) => AgentState.pruneConversation(stateWithNewMessage, config)
+            case None         => stateWithNewMessage
+          }
+
+          runWithStrategyInternal(stateToRun, toolExecutionStrategy, maxSteps, traceLogPath, debug)
+
+        case AgentStatus.InProgress | AgentStatus.WaitingForTools | AgentStatus.HandoffRequested(_, _) =>
+          Left(
+            ValidationError.invalid(
+              "agentState",
+              s"Cannot continue from incomplete state: ${previousState.status}"
+            )
+          )
+      }
+
+      // 3. Validate output
+      validatedState <- validateOutput(finalState, outputGuardrails)
+    } yield validatedState
   }
 }
