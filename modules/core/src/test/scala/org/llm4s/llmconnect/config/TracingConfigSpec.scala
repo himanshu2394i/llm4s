@@ -42,12 +42,12 @@ class TracingConfigSpec extends AnyWordSpec with Matchers {
 
     "load overridden values from -D llm4s.tracing.langfuse.*" in {
       val props = Map(
-        "llm4s.tracing.langfuse.url"       -> "https://example.com/api",
-        "llm4s.tracing.langfuse.publicKey" -> "pub",
-        "llm4s.tracing.langfuse.secretKey" -> "sec",
-        "llm4s.tracing.langfuse.env"       -> "staging",
-        "llm4s.tracing.langfuse.release"   -> "2.0.0",
-        "llm4s.tracing.langfuse.version"   -> "2.1.3"
+        "llm4s.tracing.langfuse.url"        -> "https://example.com/api",
+        "llm4s.tracing.langfuse.public-key" -> "pub",
+        "llm4s.tracing.langfuse.secret-key" -> "sec",
+        "llm4s.tracing.langfuse.env"        -> "staging",
+        "llm4s.tracing.langfuse.release"    -> "2.0.0",
+        "llm4s.tracing.langfuse.version"    -> "2.1.3"
       )
       withProps(props) {
         val ts  = ConfigReader.TracingConf().fold(err => fail(err.toString), identity)

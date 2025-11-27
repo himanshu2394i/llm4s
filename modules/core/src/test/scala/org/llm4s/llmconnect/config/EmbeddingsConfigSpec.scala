@@ -21,11 +21,11 @@ class EmbeddingsConfigSpec extends AnyWordSpec with Matchers {
   "ConfigReader.Embeddings" should {
     "load OpenAI embeddings config via llm4s.*" in {
       val props = Map(
-        "llm4s.embeddings.provider"       -> "openai",
-        "llm4s.embeddings.openai.baseUrl" -> "https://example.com/v1",
-        "llm4s.embeddings.openai.model"   -> "text-embedding-3-small",
+        "llm4s.embeddings.provider"        -> "openai",
+        "llm4s.embeddings.openai.base-url" -> "https://example.com/v1",
+        "llm4s.embeddings.openai.model"    -> "text-embedding-3-small",
         // API key is shared with core OpenAI config keys
-        "llm4s.openai.apiKey" -> "sk-test"
+        "llm4s.openai.api-key" -> "sk-test"
       )
       withProps(props) {
         val (provider, cfg) = ConfigReader.Embeddings().fold(err => fail(err.toString), identity)
@@ -38,10 +38,10 @@ class EmbeddingsConfigSpec extends AnyWordSpec with Matchers {
 
     "load VoyageAI embeddings config via llm4s.*" in {
       val props = Map(
-        "llm4s.embeddings.provider"       -> "voyage",
-        "llm4s.embeddings.voyage.baseUrl" -> "https://api.voyage.ai",
-        "llm4s.embeddings.voyage.model"   -> "voyage-3-large",
-        "llm4s.embeddings.voyage.apiKey"  -> "vk-test"
+        "llm4s.embeddings.provider"        -> "voyage",
+        "llm4s.embeddings.voyage.base-url" -> "https://api.voyage.ai",
+        "llm4s.embeddings.voyage.model"    -> "voyage-3-large",
+        "llm4s.embeddings.voyage.api-key"  -> "vk-test"
       )
       withProps(props) {
         val (provider, cfg) = ConfigReader.Embeddings().fold(err => fail(err.toString), identity)

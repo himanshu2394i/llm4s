@@ -33,6 +33,7 @@ object Versions {
 
   val sttp       = "4.0.9"
   val cask       = "0.10.2"
+  val pureconfig = "0.17.9"
 }
 
 object Deps {
@@ -65,6 +66,11 @@ object Deps {
 
   val sttp       = "com.softwaremill.sttp.client4" %% "core" % Versions.sttp
   val cask       = "com.lihaoyi" %% "cask" % Versions.cask
+
+  // PureConfig - type-safe configuration
+  val pureconfigCore          = "com.github.pureconfig" %% "pureconfig-core"           % Versions.pureconfig
+  val pureconfigGeneric       = "com.github.pureconfig" %% "pureconfig-generic"        % Versions.pureconfig
+  val pureconfigGenericScala3 = "com.github.pureconfig" %% "pureconfig-generic-scala3" % Versions.pureconfig
 }
 
 object Common {

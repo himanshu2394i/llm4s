@@ -144,8 +144,15 @@ lazy val core = (project in file("modules/core"))
       Deps.vosk,
       Deps.postgres,
       Deps.config,
-      Deps.hikariCP
-    )
+      Deps.hikariCP,
+      Deps.pureconfigCore
+    ),
+    // PureConfig generic derivation - version-specific module
+    libraryDependencies ++= (CrossVersion.partialVersion(scalaVersion.value) match {
+      case Some((2, 13)) => Seq(Deps.pureconfigGeneric)
+      case Some((3, _))  => Seq(Deps.pureconfigGenericScala3)
+      case _             => Seq.empty
+    })
   )
 
 lazy val workspaceShared = (project in file("modules/workspace/workspaceShared"))
