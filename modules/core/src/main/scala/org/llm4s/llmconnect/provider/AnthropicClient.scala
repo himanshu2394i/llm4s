@@ -225,6 +225,7 @@ curl https://api.anthropic.com/v1/messages \
                     finishReason = None
                   )
                   accumulator.addChunk(chunk)
+                  onChunk(chunk)
                 }
               }
 
@@ -237,6 +238,7 @@ curl https://api.anthropic.com/v1/messages \
                   finishReason = Some("stop")
                 )
                 accumulator.addChunk(chunk)
+                onChunk(chunk)
               }
 
               val messageDeltaOpt = event.messageDelta()
