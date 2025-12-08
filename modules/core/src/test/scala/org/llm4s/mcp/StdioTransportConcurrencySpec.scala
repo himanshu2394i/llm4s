@@ -17,11 +17,15 @@ import java.util.concurrent.{ CountDownLatch, Executors, TimeUnit }
  */
 class StdioTransportConcurrencySpec extends AnyFlatSpec with Matchers {
 
+  // Skip tests on Windows since they require bash
+  private val isWindows: Boolean = System.getProperty("os.name").toLowerCase.contains("win")
+
   /**
    * Test that verifies concurrent requests get correctly matched responses.
    * This is the key test for issue #326.
    */
   "StdioTransportImpl" should "correctly route responses to concurrent requests" in {
+    assume(!isWindows, "Bash not available on Windows")
     // Use cat with a simple transformation - this is a minimal echo server
     // The script reads JSON, extracts id, and returns a response
     val scriptCommand = Seq(
@@ -101,6 +105,7 @@ class StdioTransportConcurrencySpec extends AnyFlatSpec with Matchers {
   }
 
   it should "handle rapid sequential requests correctly" in {
+    assume(!isWindows, "Bash not available on Windows")
     val scriptCommand = Seq(
       "bash",
       "-c",
@@ -144,6 +149,7 @@ class StdioTransportConcurrencySpec extends AnyFlatSpec with Matchers {
   }
 
   it should "handle mixed concurrent and sequential requests" in {
+    assume(!isWindows, "Bash not available on Windows")
     val scriptCommand = Seq(
       "bash",
       "-c",
@@ -210,6 +216,7 @@ class StdioTransportConcurrencySpec extends AnyFlatSpec with Matchers {
   }
 
   it should "correctly handle notifications (which don't expect responses)" in {
+    assume(!isWindows, "Bash not available on Windows")
     val scriptCommand = Seq(
       "bash",
       "-c",
