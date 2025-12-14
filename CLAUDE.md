@@ -52,14 +52,31 @@ sbt "samples/runMain org.llm4s.samples.basic.BasicLLMCallingExample"
 ## Environment Variables
 
 ```bash
-# Required
+# Required for LLM
 LLM_MODEL=openai/gpt-4o              # or anthropic/claude-sonnet-4-5-latest
 OPENAI_API_KEY=sk-...                # or ANTHROPIC_API_KEY
 
-# Optional
+# Optional - Tracing
 TRACING_MODE=langfuse                # langfuse, console, or none
 LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
+
+# Embeddings - OpenAI (cloud)
+EMBEDDING_PROVIDER=openai
+OPENAI_EMBEDDING_BASE_URL=https://api.openai.com/v1
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_API_KEY=sk-...
+
+# Embeddings - Voyage (cloud)
+EMBEDDING_PROVIDER=voyage
+VOYAGE_EMBEDDING_BASE_URL=https://api.voyageai.com/v1
+VOYAGE_EMBEDDING_MODEL=voyage-3
+VOYAGE_API_KEY=pa-...
+
+# Embeddings - Ollama (local, no API key needed)
+EMBEDDING_PROVIDER=ollama
+OLLAMA_EMBEDDING_BASE_URL=http://localhost:11434  # optional, this is default
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text           # or mxbai-embed-large, all-minilm
 ```
 
 ## Code Conventions

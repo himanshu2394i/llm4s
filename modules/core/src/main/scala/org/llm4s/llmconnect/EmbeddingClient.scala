@@ -3,7 +3,12 @@ package org.llm4s.llmconnect
 import org.llm4s.config.ConfigReader
 import org.llm4s.llmconnect.config.{ EmbeddingConfig, EmbeddingProviderConfig }
 import org.llm4s.llmconnect.model.{ EmbeddingError, EmbeddingRequest, EmbeddingResponse, EmbeddingVector }
-import org.llm4s.llmconnect.provider.{ EmbeddingProvider, OpenAIEmbeddingProvider, VoyageAIEmbeddingProvider }
+import org.llm4s.llmconnect.provider.{
+  EmbeddingProvider,
+  OllamaEmbeddingProvider,
+  OpenAIEmbeddingProvider,
+  VoyageAIEmbeddingProvider
+}
 import org.llm4s.llmconnect.encoding.UniversalEncoder
 import org.llm4s.types.Result
 import org.slf4j.LoggerFactory
@@ -36,6 +41,7 @@ object EmbeddingClient {
     val providerOpt: Option[EmbeddingProvider] = providerName match {
       case "openai" => Some(OpenAIEmbeddingProvider(config))
       case "voyage" => Some(VoyageAIEmbeddingProvider(config))
+      case "ollama" => Some(OllamaEmbeddingProvider(config))
       case _        => None
     }
 
@@ -63,6 +69,7 @@ object EmbeddingClient {
     p match {
       case "openai" => Right(new EmbeddingClient(OpenAIEmbeddingProvider.fromConfig(cfg)))
       case "voyage" => Right(new EmbeddingClient(VoyageAIEmbeddingProvider.fromConfig(cfg)))
+      case "ollama" => Right(new EmbeddingClient(OllamaEmbeddingProvider.fromConfig(cfg)))
       case other =>
         Left(
           EmbeddingError(

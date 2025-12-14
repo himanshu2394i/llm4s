@@ -140,6 +140,7 @@ object ConfigReader {
           |Set the embeddings provider to use:
           |  export EMBEDDING_PROVIDER=openai
           |  export EMBEDDING_PROVIDER=voyage
+          |  export EMBEDDING_PROVIDER=ollama
           |
           |See: https://github.com/llm4s/llm4s#embeddings""".stripMargin
 
@@ -199,6 +200,9 @@ object ConfigReader {
       VOYAGE_API_KEY            -> "llm4s.embeddings.voyage.apiKey",
       VOYAGE_EMBEDDING_BASE_URL -> "llm4s.embeddings.voyage.baseUrl",
       VOYAGE_EMBEDDING_MODEL    -> "llm4s.embeddings.voyage.model",
+      // Embeddings (Ollama)
+      OLLAMA_EMBEDDING_BASE_URL -> "llm4s.embeddings.ollama.baseUrl",
+      OLLAMA_EMBEDDING_MODEL    -> "llm4s.embeddings.ollama.model",
       // Embeddings (chunking)
       CHUNK_SIZE       -> "llm4s.embeddings.chunking.size",
       CHUNK_OVERLAP    -> "llm4s.embeddings.chunking.overlap",
@@ -243,9 +247,15 @@ object ConfigReader {
           val conf = provider match {
             case "openai" => EmbCfg.openAI(cfg)
             case "voyage" => EmbCfg.voyage(cfg)
+            case "ollama" => EmbCfg.ollama(cfg)
             case other    => throw new RuntimeException(s"Unknown embedding provider: $other")
           }
-          EmbCfg.validateProviderConfig(conf) match {
+          // Use provider-specific validation (Ollama doesn't require API key)
+          val validated = provider match {
+            case "ollama" => EmbCfg.validateOllamaConfig(conf)
+            case _        => EmbCfg.validateProviderConfig(conf)
+          }
+          validated match {
             case Left(err) => throw new RuntimeException(err)
             case Right(ok) => provider -> ok
           }

@@ -11,6 +11,10 @@ Comprehensive guides for LLM4S features.
 
 ## Available Guides
 
+### RAG & Semantic Search
+
+- **[Vector Store](vector-store)** - Low-level vector storage for RAG and semantic search
+
 ### Multimodal Capabilities
 
 - **[Image Generation](image-generation)** - Generate images with DALL-E and other providers

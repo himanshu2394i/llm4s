@@ -27,6 +27,26 @@ class EmbeddingClientFactorySpec extends AnyWordSpec with Matchers {
       res.isRight shouldBe true
     }
 
+    "build client for ollama without throwing" in {
+      val cfg = EmbeddingProviderConfig(
+        baseUrl = "http://localhost:11434",
+        model = "nomic-embed-text",
+        apiKey = "not-required"
+      )
+      val res = EmbeddingClient.from("ollama", cfg)
+      res.isRight shouldBe true
+    }
+
+    "build client for ollama with empty apiKey" in {
+      val cfg = EmbeddingProviderConfig(
+        baseUrl = "http://localhost:11434",
+        model = "mxbai-embed-large",
+        apiKey = ""
+      )
+      val res = EmbeddingClient.from("ollama", cfg)
+      res.isRight shouldBe true
+    }
+
     "reject unknown provider" in {
       val cfg = EmbeddingProviderConfig(
         baseUrl = "http://localhost",

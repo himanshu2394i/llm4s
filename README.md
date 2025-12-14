@@ -426,6 +426,16 @@ Use these loaders to convert flat keys and HOCON paths into typed, validated set
   - Query: `EMBEDDING_QUERY` → `EmbeddingQuery.load()` → `EmbeddingQuery`
   - UI knobs: `MAX_ROWS_PER_FILE`, `TOP_DIMS_PER_ROW`, `GLOBAL_TOPK`, `SHOW_GLOBAL_TOP`, `COLOR`, `TABLE_WIDTH` → `EmbeddingUiSettings.load()` → `EmbeddingUiSettings`
 
+- Embeddings: provider configuration
+  - Key: `EMBEDDING_PROVIDER` or `llm4s.embeddings.provider` (required)
+  - Supported providers: `openai`, `voyage`, `ollama`
+  - Type: `(String, EmbeddingProviderConfig)`
+  - Loader: `ConfigReader.Embeddings()`
+  - Provider-specific keys:
+    - **OpenAI**: `OPENAI_EMBEDDING_BASE_URL`, `OPENAI_EMBEDDING_MODEL`, `OPENAI_API_KEY`
+    - **Voyage**: `VOYAGE_EMBEDDING_BASE_URL`, `VOYAGE_EMBEDDING_MODEL`, `VOYAGE_API_KEY`
+    - **Ollama** (local): `OLLAMA_EMBEDDING_BASE_URL` (default: `http://localhost:11434`), `OLLAMA_EMBEDDING_MODEL`
+
 - Provider API keys and endpoints
   - Keys: `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `AZURE_API_BASE`, `AZURE_API_KEY`, `AZURE_API_VERSION`, `OLLAMA_BASE_URL`
   - Type: concrete `ProviderConfig` (e.g., `OpenAIConfig`, `AnthropicConfig`, `AzureConfig`, `OllamaConfig`)

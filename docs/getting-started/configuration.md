@@ -95,6 +95,18 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_URL=https://cloud.langfuse.com  # or self-hosted
 
 # ===================
+# Embeddings Configuration (RAG)
+# ===================
+# Provider: openai, voyage, or ollama
+EMBEDDING_PROVIDER=openai
+OPENAI_EMBEDDING_BASE_URL=https://api.openai.com/v1
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+
+# Or for local embeddings (no API key needed):
+# EMBEDDING_PROVIDER=ollama
+# OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+
+# ===================
 # Workspace Configuration (Optional)
 # ===================
 WORKSPACE_DIR=/tmp/llm4s-workspace
@@ -303,6 +315,84 @@ ollama pull llama2
 
 # Start server
 ollama serve
+```
+
+---
+
+## Embeddings Configuration
+
+LLM4S supports multiple embedding providers for RAG (Retrieval-Augmented Generation) workflows.
+
+### OpenAI Embeddings
+
+```bash
+EMBEDDING_PROVIDER=openai
+OPENAI_EMBEDDING_BASE_URL=https://api.openai.com/v1
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_API_KEY=sk-...  # Same key as LLM
+```
+
+**Available Models:**
+- `text-embedding-3-small` - Fast, cost-effective (1536 dimensions)
+- `text-embedding-3-large` - Higher quality (3072 dimensions)
+- `text-embedding-ada-002` - Legacy model (1536 dimensions)
+
+### Voyage AI Embeddings
+
+```bash
+EMBEDDING_PROVIDER=voyage
+VOYAGE_EMBEDDING_BASE_URL=https://api.voyageai.com/v1
+VOYAGE_EMBEDDING_MODEL=voyage-3
+VOYAGE_API_KEY=pa-...
+```
+
+**Available Models:**
+- `voyage-3` - General purpose
+- `voyage-3-large` - Higher quality
+- `voyage-code-2` - Code-optimized
+
+### Ollama Embeddings (Local)
+
+```bash
+EMBEDDING_PROVIDER=ollama
+OLLAMA_EMBEDDING_BASE_URL=http://localhost:11434  # Optional, this is default
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+# No API key needed!
+```
+
+**Available Models:**
+- `nomic-embed-text` - General purpose (768 dimensions)
+- `mxbai-embed-large` - Higher quality (1024 dimensions)
+- `all-minilm` - Lightweight (384 dimensions)
+
+**Install embedding model:**
+
+```bash
+ollama pull nomic-embed-text
+```
+
+### Using Embeddings in Code
+
+```scala
+import org.llm4s.llmconnect.EmbeddingClient
+import org.llm4s.agent.memory.LLMEmbeddingService
+
+// Create embedding client from environment
+val client = EmbeddingClient.fromEnv()
+
+// Or use the higher-level service
+val embeddingService = LLMEmbeddingService.fromEnv()
+```
+
+### System Properties (Alternative)
+
+When running via sbt, use system properties for reliable configuration:
+
+```bash
+sbt -Dllm4s.embeddings.provider=ollama \
+    -Dllm4s.embeddings.ollama.model=nomic-embed-text \
+    -Dllm4s.ollama.baseUrl=http://localhost:11434 \
+    "run"
 ```
 
 ---

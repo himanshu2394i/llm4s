@@ -35,6 +35,12 @@ object EmbeddingConfig {
     apiKey = loadEnv(VOYAGE_API_KEY)(config)
   )
 
+  def ollama(config: ConfigReader): EmbeddingProviderConfig = EmbeddingProviderConfig(
+    baseUrl = loadOptionalEnv(OLLAMA_EMBEDDING_BASE_URL, "http://localhost:11434")(config),
+    model = loadEnv(OLLAMA_EMBEDDING_MODEL)(config),
+    apiKey = loadOptionalEnv("OLLAMA_API_KEY", "not-required")(config) // Ollama doesn't require API key
+  )
+
   def activeProvider(config: ConfigReader): String = loadEnv(EMBEDDING_PROVIDER)(config)
 
   // ---------- Paths & query (now OPTIONAL to avoid static init failures) ----------
@@ -81,10 +87,17 @@ object EmbeddingConfig {
       val providerConfig = provider.toLowerCase match {
         case "openai" => openAI(config)
         case "voyage" => voyage(config)
+        case "ollama" => ollama(config)
         case other    => throw new RuntimeException(s"Unknown embedding provider: $other")
       }
       provider -> providerConfig
     }.toEither.left
       .map(_.getMessage)
       .flatMap { case (provider, cfg) => validateProviderConfig(cfg).map(_ => provider) }
+
+  /** Validates Ollama config - API key is optional */
+  def validateOllamaConfig(config: EmbeddingProviderConfig): Either[String, EmbeddingProviderConfig] =
+    if (config.baseUrl.trim.isEmpty) Left("Ollama baseUrl is required but was empty")
+    else if (config.model.trim.isEmpty) Left("Ollama model is required but was empty")
+    else Right(config)
 }

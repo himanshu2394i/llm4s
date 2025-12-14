@@ -64,16 +64,25 @@ object LLMEmbeddingService {
 
   // Default dimensions for common models
   private val defaultDimensions: Map[String, Int] = Map(
-    "text-embedding-ada-002"  -> 1536,
-    "text-embedding-3-small"  -> 1536,
-    "text-embedding-3-large"  -> 3072,
+    // OpenAI
+    "text-embedding-ada-002" -> 1536,
+    "text-embedding-3-small" -> 1536,
+    "text-embedding-3-large" -> 3072,
+    // VoyageAI
     "voyage-2"                -> 1024,
     "voyage-large-2"          -> 1536,
     "voyage-code-2"           -> 1536,
     "voyage-large-2-instruct" -> 1024,
     "voyage-finance-2"        -> 1024,
     "voyage-multilingual-2"   -> 1024,
-    "voyage-law-2"            -> 1024
+    "voyage-law-2"            -> 1024,
+    // Ollama (local models)
+    "nomic-embed-text"       -> 768,
+    "mxbai-embed-large"      -> 1024,
+    "all-minilm"             -> 384,
+    "snowflake-arctic-embed" -> 1024,
+    "bge-m3"                 -> 1024,
+    "bge-large"              -> 1024
   )
 
   /**
