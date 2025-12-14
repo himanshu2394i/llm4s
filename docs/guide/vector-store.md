@@ -381,6 +381,117 @@ val withOptions = VectorStoreFactory.Config()
 
 ---
 
+## Hybrid Search
+
+Hybrid search combines vector similarity (semantic) with BM25 keyword matching for better retrieval quality. LLM4S provides a `HybridSearcher` that fuses results from both search types.
+
+### Quick Start
+
+```scala
+import org.llm4s.vectorstore._
+
+// Create stores
+val vectorStore = VectorStoreFactory.inMemory().getOrElse(???)
+val keywordIndex = KeywordIndex.inMemory().getOrElse(???)
+
+// Create hybrid searcher
+val searcher = HybridSearcher(vectorStore, keywordIndex)
+
+// Index documents in both stores
+val embedding = Array(0.1f, 0.2f, 0.3f)
+vectorStore.upsert(VectorRecord("doc-1", embedding, Some("Scala programming language")))
+keywordIndex.index(KeywordDocument("doc-1", "Scala programming language"))
+
+// Search with both vector and keyword
+val results = searcher.search(
+  queryEmbedding = embedding,
+  queryText = "Scala",
+  topK = 10
+)
+
+results.foreach { r =>
+  println(s"${r.id}: ${r.score} (vector: ${r.vectorScore}, keyword: ${r.keywordScore})")
+}
+
+searcher.close()
+```
+
+### Fusion Strategies
+
+Choose how to combine vector and keyword scores:
+
+```scala
+import org.llm4s.vectorstore.FusionStrategy._
+
+// Reciprocal Rank Fusion (default) - rank-based, robust to score differences
+val rrfResults = searcher.search(embedding, "query", strategy = RRF(k = 60))
+
+// Weighted Score - normalized scores with configurable weights
+val weightedResults = searcher.search(
+  embedding, "query",
+  strategy = WeightedScore(vectorWeight = 0.7, keywordWeight = 0.3)
+)
+
+// Single-mode search
+val vectorOnly = searcher.search(embedding, "query", strategy = VectorOnly)
+val keywordOnly = searcher.search(embedding, "query", strategy = KeywordOnly)
+```
+
+**When to use each strategy:**
+
+| Strategy | Best For |
+|----------|----------|
+| RRF (default) | General use, heterogeneous sources |
+| WeightedScore | When you know relative importance |
+| VectorOnly | Semantic/conceptual queries |
+| KeywordOnly | Exact term matching, names, codes |
+
+### BM25 Keyword Index
+
+The `KeywordIndex` provides BM25-scored full-text search using SQLite FTS5:
+
+```scala
+import org.llm4s.vectorstore._
+
+// Create keyword index
+val index = KeywordIndex.inMemory().getOrElse(???)
+
+// Index documents
+index.index(KeywordDocument("doc-1", "Scala is a programming language"))
+index.index(KeywordDocument("doc-2", "Python is also popular"))
+
+// Search with highlights
+val results = index.searchWithHighlights("programming", topK = 5)
+results.foreach { r =>
+  println(s"${r.id}: ${r.score}")
+  r.highlights.foreach(h => println(s"  ...${h}..."))
+}
+
+index.close()
+```
+
+### Factory Methods
+
+```scala
+// In-memory (development)
+val memSearcher = HybridSearcher.inMemory().getOrElse(???)
+
+// File-based SQLite
+val fileSearcher = HybridSearcher.sqlite(
+  vectorDbPath = "/path/to/vectors.db",
+  keywordDbPath = "/path/to/keywords.db"
+).getOrElse(???)
+
+// From configuration
+val config = HybridSearcher.Config()
+  .withVectorStore(VectorStoreFactory.Config.pgvector(...))
+  .withRRF(k = 60)
+
+val configSearcher = HybridSearcher(config).getOrElse(???)
+```
+
+---
+
 ## Integration with RAG Pipeline
 
 ### Complete RAG Example
