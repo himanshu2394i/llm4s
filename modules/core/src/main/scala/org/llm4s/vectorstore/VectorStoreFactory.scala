@@ -12,9 +12,9 @@ import org.llm4s.error.NotFoundError
  * Currently supported backends:
  * - "sqlite" - SQLite-based storage (default)
  * - "pgvector" - PostgreSQL with pgvector extension
+ * - "qdrant" - Qdrant vector database
  *
  * Future backends (roadmap):
- * - "qdrant" - Qdrant vector database
  * - "milvus" - Milvus vector database
  * - "pinecone" - Pinecone cloud service
  */
@@ -30,18 +30,19 @@ object VectorStoreFactory {
   object Backend {
     case object SQLite   extends Backend { val name = "sqlite"   }
     case object PgVector extends Backend { val name = "pgvector" }
+    case object Qdrant   extends Backend { val name = "qdrant"   }
     // Future backends:
-    // case object Qdrant extends Backend { val name = "qdrant" }
     // case object Milvus extends Backend { val name = "milvus" }
     // case object Pinecone extends Backend { val name = "pinecone" }
 
     def fromString(s: String): Option[Backend] = s.toLowerCase match {
       case "sqlite"   => Some(SQLite)
       case "pgvector" => Some(PgVector)
+      case "qdrant"   => Some(Qdrant)
       case _          => None
     }
 
-    val all: Seq[Backend] = Seq(SQLite, PgVector)
+    val all: Seq[Backend] = Seq(SQLite, PgVector, Qdrant)
   }
 
   /**
@@ -70,6 +71,12 @@ object VectorStoreFactory {
      */
     def withPgVector(connectionString: String): Config =
       copy(backend = Backend.PgVector, connectionString = Some(connectionString))
+
+    /**
+     * Create with Qdrant backend.
+     */
+    def withQdrant(url: String): Config =
+      copy(backend = Backend.Qdrant, connectionString = Some(url))
 
     /**
      * Create in-memory store (SQLite).
@@ -109,6 +116,33 @@ object VectorStoreFactory {
      */
     def pgvector(connectionString: String, tableName: String = "vectors"): Config =
       Config(Backend.PgVector, connectionString = Some(connectionString), options = Map("tableName" -> tableName))
+
+    /**
+     * Configuration for local Qdrant.
+     *
+     * @param collectionName Collection name (default: "vectors")
+     * @param port Qdrant port (default: 6333)
+     */
+    def qdrant(collectionName: String = "vectors", port: Int = 6333): Config =
+      Config(
+        Backend.Qdrant,
+        connectionString = Some(s"http://localhost:$port"),
+        options = Map("collectionName" -> collectionName)
+      )
+
+    /**
+     * Configuration for Qdrant Cloud.
+     *
+     * @param cloudUrl Qdrant cloud URL (e.g., https://xxx.qdrant.io)
+     * @param apiKey Qdrant API key
+     * @param collectionName Collection name (default: "vectors")
+     */
+    def qdrantCloud(cloudUrl: String, apiKey: String, collectionName: String = "vectors"): Config =
+      Config(
+        Backend.Qdrant,
+        connectionString = Some(cloudUrl),
+        options = Map("collectionName" -> collectionName, "apiKey" -> apiKey)
+      )
   }
 
   /**
@@ -136,8 +170,21 @@ object VectorStoreFactory {
           PgVectorStore.local(tableName)
       }
 
+    case Backend.Qdrant =>
+      val collectionName = config.options.getOrElse("collectionName", "vectors")
+      val apiKey         = config.options.get("apiKey")
+      config.connectionString match {
+        case Some(url) =>
+          apiKey match {
+            case Some(key) => QdrantVectorStore.cloud(url, key, collectionName)
+            case None      => QdrantVectorStore(url, collectionName)
+          }
+        case None =>
+          QdrantVectorStore.local(collectionName)
+      }
+
     // Future backends would be handled here:
-    // case Backend.Qdrant => QdrantVectorStore(config.connectionString.getOrElse(...))
+    // case Backend.Milvus => MilvusVectorStore(config.connectionString.getOrElse(...))
   }
 
   /**
@@ -211,4 +258,40 @@ object VectorStoreFactory {
     tableName: String
   ): Result[VectorStore] =
     PgVectorStore(connectionString, user, password, tableName)
+
+  /**
+   * Create a Qdrant store with default local settings.
+   *
+   * Connects to localhost:6333.
+   *
+   * @param collectionName Collection name (default: "vectors")
+   * @return The vector store or error
+   */
+  def qdrant(collectionName: String = "vectors"): Result[VectorStore] =
+    QdrantVectorStore.local(collectionName)
+
+  /**
+   * Create a Qdrant store with explicit URL.
+   *
+   * @param url Qdrant server URL (e.g., http://localhost:6333)
+   * @param collectionName Collection name
+   * @return The vector store or error
+   */
+  def qdrant(url: String, collectionName: String): Result[VectorStore] =
+    QdrantVectorStore(url, collectionName)
+
+  /**
+   * Create a Qdrant Cloud store.
+   *
+   * @param cloudUrl Qdrant cloud URL (e.g., https://xxx.qdrant.io)
+   * @param apiKey Qdrant API key
+   * @param collectionName Collection name (default: "vectors")
+   * @return The vector store or error
+   */
+  def qdrantCloud(
+    cloudUrl: String,
+    apiKey: String,
+    collectionName: String = "vectors"
+  ): Result[VectorStore] =
+    QdrantVectorStore.cloud(cloudUrl, apiKey, collectionName)
 }

@@ -32,10 +32,10 @@ The `VectorStore` trait provides a backend-agnostic interface for storing and se
 
 **Current Backends:**
 - **SQLite** - File-based or in-memory storage (default)
+- **pgvector** - PostgreSQL with pgvector extension (production-ready)
+- **Qdrant** - Cloud-native vector database via REST API
 
 **Planned Backends:**
-- pgvector (PostgreSQL)
-- Qdrant
 - Milvus
 - Pinecone
 
@@ -90,6 +90,57 @@ val store = VectorStoreFactory.sqlite("/path/to/vectors.db").fold(
 )
 
 // Use the store...
+
+store.close()
+```
+
+### PostgreSQL with pgvector
+
+```scala
+import org.llm4s.vectorstore._
+
+// Local PostgreSQL with defaults
+val store = VectorStoreFactory.pgvector().fold(
+  e => throw new RuntimeException(s"Failed: ${e.formatted}"),
+  identity
+)
+
+// Or with explicit connection settings
+val store2 = VectorStoreFactory.pgvector(
+  connectionString = "jdbc:postgresql://localhost:5432/mydb",
+  user = "postgres",
+  password = "secret",
+  tableName = "embeddings"
+).fold(...)
+
+// Create HNSW index for faster search (optional)
+store.asInstanceOf[PgVectorStore].createHnswIndex()
+
+store.close()
+```
+
+**Setup:** Requires PostgreSQL with pgvector extension:
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+```
+
+### Qdrant
+
+```scala
+import org.llm4s.vectorstore._
+
+// Local Qdrant (docker run -p 6333:6333 qdrant/qdrant)
+val store = VectorStoreFactory.qdrant().fold(
+  e => throw new RuntimeException(s"Failed: ${e.formatted}"),
+  identity
+)
+
+// Or Qdrant Cloud
+val cloudStore = VectorStoreFactory.qdrantCloud(
+  cloudUrl = "https://your-cluster.qdrant.io",
+  apiKey = "your-api-key",
+  collectionName = "my_vectors"
+).fold(...)
 
 store.close()
 ```
@@ -303,6 +354,25 @@ val sqliteConfig = VectorStoreFactory.Config.sqlite("/path/to/vectors.db")
 // In-memory config
 val memConfig = VectorStoreFactory.Config.inMemory
 
+// pgvector config
+val pgConfig = VectorStoreFactory.Config.pgvector(
+  connectionString = "jdbc:postgresql://localhost:5432/postgres",
+  tableName = "vectors"
+)
+
+// Qdrant config
+val qdrantConfig = VectorStoreFactory.Config.qdrant(
+  collectionName = "vectors",
+  port = 6333
+)
+
+// Qdrant Cloud config
+val qdrantCloudConfig = VectorStoreFactory.Config.qdrantCloud(
+  cloudUrl = "https://xxx.qdrant.io",
+  apiKey = "your-api-key",
+  collectionName = "vectors"
+)
+
 // With options
 val withOptions = VectorStoreFactory.Config()
   .withSQLite("/path/to/db.sqlite")
@@ -448,7 +518,58 @@ The SQLite backend is suitable for:
 - All candidate vectors loaded into memory during search
 - No built-in sharding or replication
 
-For larger datasets or production workloads with high QPS requirements, consider pgvector or Qdrant (coming soon).
+### pgvector Backend
+
+PostgreSQL with pgvector is ideal for:
+- Production workloads with existing PostgreSQL infrastructure
+- Medium to large datasets (millions of vectors)
+- Teams familiar with PostgreSQL operations
+- Applications requiring ACID transactions
+
+**Features:**
+- HNSW indexing for fast approximate nearest neighbor search
+- Connection pooling with HikariCP
+- Native vector operations in PostgreSQL
+- Excellent SQL tooling and monitoring
+
+**Setup:**
+```bash
+# Enable pgvector extension
+psql -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+### Qdrant Backend
+
+Qdrant is recommended for:
+- High-performance production workloads
+- Large-scale deployments (billions of vectors)
+- Cloud-native architectures
+- Teams wanting managed vector database service
+
+**Features:**
+- Cloud-native architecture with horizontal scaling
+- REST and gRPC APIs
+- Rich filtering on payload fields
+- Snapshot and backup capabilities
+- Managed cloud offering available
+
+**Setup:**
+```bash
+# Local development with Docker
+docker run -p 6333:6333 qdrant/qdrant
+
+# Or use Qdrant Cloud for production
+```
+
+### Choosing a Backend
+
+| Requirement | Recommended Backend |
+|-------------|---------------------|
+| Development/testing | SQLite (in-memory) |
+| Single-machine production | SQLite (file-based) |
+| Existing PostgreSQL | pgvector |
+| High-scale production | Qdrant |
+| Managed service | Qdrant Cloud |
 
 ---
 
