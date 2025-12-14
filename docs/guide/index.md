@@ -13,7 +13,10 @@ Comprehensive guides for LLM4S features.
 
 ### RAG & Semantic Search
 
-- **[Vector Store](vector-store)** - Low-level vector storage for RAG and semantic search
+- **[Vector Store](vector-store)** - Backend-agnostic vector storage for RAG and semantic search
+  - SQLite (in-memory and file-based)
+  - PostgreSQL with pgvector
+  - Qdrant (local and cloud)
 
 ### Multimodal Capabilities
 

@@ -109,10 +109,22 @@ graph TD
 
 | Feature | Progress | Blocking Issues |
 |---------|----------|-----------------|
-| **RAG Pipeline** | ~70% | Vector store integrations, chunking strategies |
+| **RAG Pipeline** | ~85% | Hybrid search (BM25 + vector), reranking |
 | **MCP Full Implementation** | ~50% | Full protocol, server implementation |
 | **Advanced Embeddings** | ~60% | Multi-provider support, caching |
 | **Enhanced Observability** | Planning | Plugin architecture, multi-backend |
+
+### RAG & Vector Store Progress
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| VectorStore Abstraction | ✅ Complete | Backend-agnostic trait |
+| SQLite Backend | ✅ Complete | File-based and in-memory |
+| pgvector Backend | ✅ Complete | PostgreSQL + pgvector extension |
+| Qdrant Backend | ✅ Complete | REST API, local + cloud |
+| BM25 Keyword Index | 🚧 In Progress | For hybrid search |
+| Hybrid Search Fusion | 📋 Planned | RRF/weighted combination |
+| Reranking Pipeline | 📋 Planned | Cross-encoder support |
 
 ---
 
@@ -122,7 +134,8 @@ graph TD
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
-| RAG Vector Integrations | P0 | pgvector, Qdrant, Weaviate, Elasticsearch |
+| RAG Vector Integrations | ✅ Done | SQLite, pgvector, Qdrant complete |
+| RAG Hybrid Search | P0 | BM25 + vector fusion, reranking |
 | RAG Document Chunking | P0 | Smart chunking for different document types |
 | Reliable Calling | P0 | Retry with backoff, circuit breakers, deadlines |
 | Performance Benchmarks | P1 | JMH framework, baseline metrics |

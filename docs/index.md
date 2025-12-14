@@ -62,8 +62,8 @@ Real-time token streaming with backpressure handling and error recovery.
 [View examples →](/examples/#streaming)
 
 #### 🔍 RAG & Embeddings
-Built-in support for retrieval-augmented generation with vector embeddings and semantic search.
-[Get started →](/examples/#embeddings-examples)
+Built-in support for retrieval-augmented generation with vector embeddings and semantic search. Multiple vector store backends: SQLite, PostgreSQL/pgvector, and Qdrant.
+[Vector stores →](/guide/vector-store) | [Examples →](/examples/#embeddings-examples)
 
 #### 🖼️ Multimodal Support
 Generate and analyze images, convert speech-to-text and text-to-speech, and work with multiple content modalities.
