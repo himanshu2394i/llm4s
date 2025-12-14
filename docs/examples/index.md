@@ -8,7 +8,7 @@ has_children: true
 # Example Gallery
 {: .no_toc }
 
-Explore **69 working examples** covering all LLM4S features.
+Explore **70 working examples** covering all LLM4S features.
 {: .fs-6 .fw-300 }
 
 ## Table of contents
@@ -28,7 +28,7 @@ Explore **69 working examples** covering all LLM4S features.
 | [Tool Examples](#tool-examples) | 7 | Tool calling, built-in tools, parallel execution |
 | [Guardrails Examples](#guardrails-examples) | 7 | Input/output validation, LLM-as-Judge |
 | [Handoff Examples](#handoff-examples) | 3 | Agent-to-agent delegation |
-| [Memory Examples](#memory-examples) | 5 | Short/long-term memory, vector search |
+| [Memory Examples](#memory-examples) | 6 | Short/long-term memory, vector search, RAG |
 | [Streaming Examples](#streaming-examples) | 4 | Real-time responses, agent events |
 | [Reasoning Examples](#reasoning-examples) | 1 | Extended thinking modes |
 | [Context Management](#context-management) | 8 | Token windows, compression |
@@ -799,6 +799,50 @@ sbt "samples/runMain org.llm4s.samples.memory.VectorMemoryExample"
 ```
 
 [View source →](https://github.com/llm4s/llm4s/blob/main/modules/samples/src/main/scala/org/llm4s/samples/memory/VectorMemoryExample.scala)
+
+---
+
+### DocumentQAExample (RAG)
+
+**File:** [`DocumentQAExample.scala`](https://github.com/llm4s/llm4s/blob/main/modules/samples/src/main/scala/org/llm4s/samples/rag/DocumentQAExample.scala)
+
+Complete RAG (Retrieval-Augmented Generation) pipeline demonstrating document Q&A with semantic search.
+
+```bash
+# With mock embeddings (no API key needed for embeddings)
+export LLM_MODEL=openai/gpt-4o
+export OPENAI_API_KEY=sk-...
+sbt "samples/runMain org.llm4s.samples.rag.DocumentQAExample"
+
+# With real OpenAI embeddings
+export OPENAI_EMBEDDING_BASE_URL=https://api.openai.com
+export OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+export LLM_MODEL=openai/gpt-4o
+export OPENAI_API_KEY=sk-...
+sbt "samples/runMain org.llm4s.samples.rag.DocumentQAExample"
+```
+
+**What it demonstrates:**
+- Document loading and text extraction
+- Text chunking with configurable size and overlap
+- Embedding generation (mock or real via OpenAI/VoyageAI)
+- Vector storage with SQLite backend
+- Semantic similarity search
+- RAG prompt construction with context
+- Answer generation with source citations
+
+**Key code:**
+```scala
+// Ingest documents
+val chunks = ChunkingUtils.chunkText(text, chunkSize = 800, overlap = 150)
+store.store(Memory.fromKnowledge(chunk, source = fileName))
+
+// Query with semantic search
+val results = store.search(query, topK = 4)
+val answer = client.complete(buildRAGPrompt(query, results))
+```
+
+[View source →](https://github.com/llm4s/llm4s/blob/main/modules/samples/src/main/scala/org/llm4s/samples/rag/DocumentQAExample.scala)
 
 ---
 

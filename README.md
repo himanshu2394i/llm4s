@@ -251,7 +251,7 @@ The roadmap covers:
 - [ ] Single API access to multiple LLM providers (like LiteLLM) - **llmconnect** ✅ *Complete*
 - [ ] Comprehensive toolchain for building LLM apps (LangChain/LangGraph equivalent)
   - [x] Tool calling ✅ *Complete*
-  - [ ] RAG search & retrieval 🚧 *In Progress (70%)*
+  - [x] RAG search & retrieval ✅ *Complete* (vector memory, embeddings, document Q&A)
   - [x] Logging, tracking, and monitoring ✅ *Complete*
 - [ ] Agentic framework (like PydanticAI, CrewAI)
   - [x] Single-agent workflows ✅ *Complete*

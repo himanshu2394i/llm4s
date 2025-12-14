@@ -295,6 +295,7 @@ store.recall(filter, limit = 10)
 | `.../samples/memory/MemoryWithAgentExample.scala` | Agent integration |
 | `.../samples/memory/SQLiteMemoryExample.scala` | SQLite persistent storage |
 | `.../samples/memory/VectorMemoryExample.scala` | Vector-based semantic search |
+| `.../samples/rag/DocumentQAExample.scala` | **Complete RAG pipeline** - Document Q&A with embeddings |
 
 ## Configuration
 
