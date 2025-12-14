@@ -11,9 +11,9 @@ import org.llm4s.error.NotFoundError
  *
  * Currently supported backends:
  * - "sqlite" - SQLite-based storage (default)
+ * - "pgvector" - PostgreSQL with pgvector extension
  *
  * Future backends (roadmap):
- * - "pgvector" - PostgreSQL with pgvector extension
  * - "qdrant" - Qdrant vector database
  * - "milvus" - Milvus vector database
  * - "pinecone" - Pinecone cloud service
@@ -28,19 +28,20 @@ object VectorStoreFactory {
   }
 
   object Backend {
-    case object SQLite extends Backend { val name = "sqlite" }
+    case object SQLite   extends Backend { val name = "sqlite"   }
+    case object PgVector extends Backend { val name = "pgvector" }
     // Future backends:
-    // case object PgVector extends Backend { val name = "pgvector" }
     // case object Qdrant extends Backend { val name = "qdrant" }
     // case object Milvus extends Backend { val name = "milvus" }
     // case object Pinecone extends Backend { val name = "pinecone" }
 
     def fromString(s: String): Option[Backend] = s.toLowerCase match {
-      case "sqlite" => Some(SQLite)
-      case _        => None
+      case "sqlite"   => Some(SQLite)
+      case "pgvector" => Some(PgVector)
+      case _          => None
     }
 
-    val all: Seq[Backend] = Seq(SQLite)
+    val all: Seq[Backend] = Seq(SQLite, PgVector)
   }
 
   /**
@@ -63,6 +64,12 @@ object VectorStoreFactory {
      */
     def withSQLite(path: String): Config =
       copy(backend = Backend.SQLite, path = Some(path))
+
+    /**
+     * Create with pgvector backend.
+     */
+    def withPgVector(connectionString: String): Config =
+      copy(backend = Backend.PgVector, connectionString = Some(connectionString))
 
     /**
      * Create in-memory store (SQLite).
@@ -93,6 +100,15 @@ object VectorStoreFactory {
      * Configuration for in-memory SQLite.
      */
     val inMemory: Config = Config(Backend.SQLite, None)
+
+    /**
+     * Configuration for pgvector.
+     *
+     * @param connectionString JDBC connection string (jdbc:postgresql://...)
+     * @param tableName Optional table name (default: "vectors")
+     */
+    def pgvector(connectionString: String, tableName: String = "vectors"): Config =
+      Config(Backend.PgVector, connectionString = Some(connectionString), options = Map("tableName" -> tableName))
   }
 
   /**
@@ -108,8 +124,19 @@ object VectorStoreFactory {
         case None       => SQLiteVectorStore.inMemory()
       }
 
+    case Backend.PgVector =>
+      val tableName = config.options.getOrElse("tableName", "vectors")
+      config.connectionString match {
+        case Some(connStr) =>
+          val user     = config.options.getOrElse("user", "postgres")
+          val password = config.options.getOrElse("password", "")
+          PgVectorStore(connStr, user, password, tableName)
+        case None =>
+          // Use default local connection
+          PgVectorStore.local(tableName)
+      }
+
     // Future backends would be handled here:
-    // case Backend.PgVector => PgVectorStore(config.connectionString.getOrElse(...))
     // case Backend.Qdrant => QdrantVectorStore(config.connectionString.getOrElse(...))
   }
 
@@ -156,4 +183,32 @@ object VectorStoreFactory {
    */
   def sqlite(path: String): Result[VectorStore] =
     SQLiteVectorStore(path)
+
+  /**
+   * Create a pgvector store with default local settings.
+   *
+   * Connects to localhost:5432/postgres with user postgres.
+   *
+   * @param tableName Table name for vectors (default: "vectors")
+   * @return The vector store or error
+   */
+  def pgvector(tableName: String = "vectors"): Result[VectorStore] =
+    PgVectorStore.local(tableName)
+
+  /**
+   * Create a pgvector store with explicit connection settings.
+   *
+   * @param connectionString JDBC connection string (jdbc:postgresql://...)
+   * @param user Database user
+   * @param password Database password
+   * @param tableName Table name for vectors
+   * @return The vector store or error
+   */
+  def pgvector(
+    connectionString: String,
+    user: String,
+    password: String,
+    tableName: String
+  ): Result[VectorStore] =
+    PgVectorStore(connectionString, user, password, tableName)
 }
