@@ -122,8 +122,8 @@ graph TD
 | SQLite Backend | ✅ Complete | File-based and in-memory |
 | pgvector Backend | ✅ Complete | PostgreSQL + pgvector extension |
 | Qdrant Backend | ✅ Complete | REST API, local + cloud |
-| BM25 Keyword Index | 🚧 In Progress | For hybrid search |
-| Hybrid Search Fusion | 📋 Planned | RRF/weighted combination |
+| BM25 Keyword Index | ✅ Complete | SQLite FTS5 with BM25 scoring |
+| Hybrid Search Fusion | ✅ Complete | RRF + weighted score strategies |
 | Reranking Pipeline | 📋 Planned | Cross-encoder support |
 
 ---
@@ -135,7 +135,7 @@ graph TD
 | Feature | Priority | Description |
 |---------|----------|-------------|
 | RAG Vector Integrations | ✅ Done | SQLite, pgvector, Qdrant complete |
-| RAG Hybrid Search | P0 | BM25 + vector fusion, reranking |
+| RAG Hybrid Search | ✅ Done | BM25 + vector fusion with RRF |
 | RAG Document Chunking | P0 | Smart chunking for different document types |
 | Reliable Calling | P0 | Retry with backoff, circuit breakers, deadlines |
 | Performance Benchmarks | P1 | JMH framework, baseline metrics |
