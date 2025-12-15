@@ -145,7 +145,7 @@ The RAG pipeline follows a 5-phase roadmap toward a production-grade retrieval s
 |-----------|--------|-------|
 | RAGAS Evaluation | ✅ Complete | Faithfulness, answer relevancy, context precision/recall metrics |
 | RAG Benchmarking Harness | ✅ Complete | Systematic comparison of chunking, fusion, embedding strategies |
-| RAG-Specific Guardrails | 📋 Planned | Hallucination detection, PII masking, source attribution |
+| RAG-Specific Guardrails | ✅ Complete | PII detection/masking, prompt injection, grounding, context relevance, source attribution, topic boundary |
 | RAG Cost Tracking | 📋 Planned | Per-query cost, latency percentiles (p50/p95/p99) |
 | Embedding Drift Detection | 📋 Planned | Monitor embedding quality over time |
 | Prompt Tuning & Optimization | 📋 Planned | Systematic prompt improvement, A/B testing, performance tracking |
@@ -188,7 +188,7 @@ These components enable a turnkey "RAG in a Box" deployment and may live in a de
 | RAG Document Chunking | ✅ Done | Sentence-aware, semantic, markdown chunking |
 | **RAGAS Evaluation** | ✅ Done | Context precision/recall, faithfulness, answer relevancy |
 | **RAG Benchmarking Harness** | ✅ Done | Systematic comparison of RAG configurations |
-| **RAG Guardrails** | P0 | Hallucination detection, PII masking, source attribution |
+| **RAG Guardrails** | ✅ Done | PII detection/masking, prompt injection, grounding, context relevance, source attribution, topic boundary |
 | Reliable Calling | P0 | Retry with backoff, circuit breakers, deadlines |
 | Performance Benchmarks | P1 | JMH framework, baseline metrics |
 | Security Audit | P1 | Threat model, vulnerability scanning |
