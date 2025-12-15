@@ -1,6 +1,7 @@
 package org.llm4s.reranker
 
 import org.llm4s.config.ConfigReader
+import org.llm4s.llmconnect.LLMClient
 import org.llm4s.types.Result
 
 /**
@@ -8,13 +9,16 @@ import org.llm4s.types.Result
  *
  * Supports multiple backends:
  * - Cohere: Cloud-based cross-encoder reranking API
- * - LLM: Use existing LLMClient for reranking (planned)
+ * - LLM: Use existing LLMClient for reranking with structured prompts
  * - None: Passthrough that preserves original order
  *
  * Usage:
  * {{{
- * // From explicit config
+ * // Cohere reranker from explicit config
  * val reranker = RerankerFactory.cohere(config)
+ *
+ * // LLM-based reranker
+ * val llmReranker = RerankerFactory.llm(llmClient)
  *
  * // From environment variables
  * val reranker = RerankerFactory.fromEnv(configReader)
@@ -63,6 +67,25 @@ object RerankerFactory {
     baseUrl: String = CohereReranker.DEFAULT_BASE_URL
   ): Reranker =
     CohereReranker(apiKey, model, baseUrl)
+
+  /**
+   * Create an LLM-based reranker.
+   *
+   * Uses a language model to score document relevance on a 0-1 scale.
+   * This is more flexible than Cohere (works with any LLM) but slower
+   * and may be more expensive depending on the model.
+   *
+   * @param client LLM client for generating scores
+   * @param batchSize Number of documents to score per LLM call (default: 10)
+   * @param systemPrompt Custom system prompt (optional)
+   * @return LLM-based reranker
+   */
+  def llm(
+    client: LLMClient,
+    batchSize: Int = LLMReranker.DEFAULT_BATCH_SIZE,
+    systemPrompt: Option[String] = None
+  ): Reranker =
+    LLMReranker(client, batchSize, systemPrompt)
 
   /**
    * Create a reranker from environment variables.

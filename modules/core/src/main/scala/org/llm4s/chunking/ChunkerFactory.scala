@@ -1,5 +1,8 @@
 package org.llm4s.chunking
 
+import org.llm4s.llmconnect.EmbeddingClient
+import org.llm4s.llmconnect.config.EmbeddingModelConfig
+
 /**
  * Factory for creating document chunkers.
  *
@@ -13,6 +16,13 @@ package org.llm4s.chunking
  *
  * // Sentence-aware chunking (recommended for most use cases)
  * val sentence = ChunkerFactory.sentence()
+ *
+ * // Markdown-aware chunking (preserves structure)
+ * val markdown = ChunkerFactory.markdown()
+ *
+ * // Semantic chunking (highest quality, requires embeddings)
+ * val modelConfig = EmbeddingModelConfig("text-embedding-3-small", 1536)
+ * val semantic = ChunkerFactory.semantic(embeddingClient, modelConfig)
  *
  * // Auto-detect based on content
  * val auto = ChunkerFactory.auto(text)
@@ -59,6 +69,37 @@ object ChunkerFactory {
   def sentence(): DocumentChunker = SentenceChunker()
 
   /**
+   * Create a markdown-aware chunker.
+   *
+   * Preserves markdown structure including:
+   * - Heading boundaries and hierarchy
+   * - Code blocks (keeps them intact)
+   * - List structure
+   *
+   * Best for markdown documentation and README files.
+   */
+  def markdown(): DocumentChunker = MarkdownChunker()
+
+  /**
+   * Create a semantic chunker using embeddings.
+   *
+   * Splits text at topic boundaries by analyzing semantic similarity
+   * between consecutive sentences. Produces the highest quality chunks
+   * but requires an embedding client.
+   *
+   * @param embeddingClient Client for generating embeddings
+   * @param modelConfig Model configuration for embeddings
+   * @param similarityThreshold Minimum similarity to stay in same chunk (0.0-1.0, default: 0.5)
+   * @param batchSize Number of sentences to embed at once (default: 50)
+   */
+  def semantic(
+    embeddingClient: EmbeddingClient,
+    modelConfig: EmbeddingModelConfig,
+    similarityThreshold: Double = SemanticChunker.DEFAULT_SIMILARITY_THRESHOLD,
+    batchSize: Int = SemanticChunker.DEFAULT_BATCH_SIZE
+  ): DocumentChunker = SemanticChunker(embeddingClient, modelConfig, similarityThreshold, batchSize)
+
+  /**
    * Create a chunker by strategy name.
    *
    * @param strategy Strategy name: "simple", "sentence", "markdown", "semantic"
@@ -71,7 +112,7 @@ object ChunkerFactory {
     Strategy.fromString(strategy).map {
       case Strategy.Simple   => simple()
       case Strategy.Sentence => sentence()
-      case Strategy.Markdown => sentence() // TODO: Implement MarkdownChunker
+      case Strategy.Markdown => markdown()
       case Strategy.Semantic => sentence() // Fallback - semantic requires embedding provider
     }
 
@@ -84,7 +125,7 @@ object ChunkerFactory {
   def create(strategy: Strategy): DocumentChunker = strategy match {
     case Strategy.Simple   => simple()
     case Strategy.Sentence => sentence()
-    case Strategy.Markdown => sentence() // TODO: Implement MarkdownChunker
+    case Strategy.Markdown => markdown()
     case Strategy.Semantic => sentence() // Fallback - semantic requires embedding provider
   }
 
@@ -101,8 +142,7 @@ object ChunkerFactory {
     val isMarkdown = detectMarkdown(text)
 
     if (isMarkdown) {
-      // TODO: Use MarkdownChunker when implemented
-      sentence()
+      markdown()
     } else {
       sentence()
     }

@@ -109,7 +109,7 @@ graph TD
 
 | Feature | Progress | Blocking Issues |
 |---------|----------|-----------------|
-| **RAG Pipeline** | ~95% | Semantic chunking, MarkdownChunker |
+| **RAG Pipeline** | ✅ Complete | All features shipped |
 | **MCP Full Implementation** | ~50% | Full protocol, server implementation |
 | **Advanced Embeddings** | ~60% | Multi-provider support, caching |
 | **Enhanced Observability** | Planning | Plugin architecture, multi-backend |
@@ -124,8 +124,8 @@ graph TD
 | Qdrant Backend | ✅ Complete | REST API, local + cloud |
 | BM25 Keyword Index | ✅ Complete | SQLite FTS5 with BM25 scoring |
 | Hybrid Search Fusion | ✅ Complete | RRF + weighted score strategies |
-| Reranking Pipeline | ✅ Complete | Cohere cross-encoder, passthrough |
-| Document Chunking | ✅ Complete | Sentence-aware, simple chunkers |
+| Reranking Pipeline | ✅ Complete | Cohere + LLM-based reranking |
+| Document Chunking | ✅ Complete | Simple, sentence-aware, markdown-aware, semantic chunkers |
 
 ---
 
