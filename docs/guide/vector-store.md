@@ -907,8 +907,53 @@ trait VectorStore {
 
 ---
 
+## Measuring RAG Quality
+
+Once you have a RAG pipeline, use the evaluation framework to measure and improve retrieval quality.
+
+### Quick Evaluation
+
+```scala
+import org.llm4s.rag.evaluation._
+
+val evaluator = new RAGASEvaluator(llmClient)
+val sample = EvalSample(
+  question = "What is Scala?",
+  answer = generatedAnswer,
+  contexts = retrievedChunks,
+  groundTruth = Some("Scala is a programming language.")
+)
+
+val metrics = evaluator.evaluate(sample)
+metrics.foreach { m =>
+  println(s"RAGAS Score: ${m.ragasScore}")
+  println(s"Faithfulness: ${m.faithfulness}")
+}
+```
+
+### Benchmarking Different Configurations
+
+Compare chunking strategies, fusion methods, and embedding providers:
+
+```bash
+# Compare fusion strategies
+sbt "samples/runMain org.llm4s.samples.rag.BenchmarkExample --suite fusion"
+
+# Compare chunking strategies
+sbt "samples/runMain org.llm4s.samples.rag.BenchmarkExample --suite chunking"
+```
+
+**See the full [RAG Evaluation Guide](rag-evaluation.md) for:**
+- RAGAS metrics explained (faithfulness, relevancy, precision, recall)
+- Running benchmarks programmatically
+- Optimization workflow and best practices
+- Actual benchmark results and recommendations
+
+---
+
 ## Next Steps
 
+- **[RAG Evaluation Guide](rag-evaluation.md)** - Measure and improve RAG quality
 - **[Embeddings Configuration](../getting-started/configuration#embeddings-configuration)** - Configure embedding providers
 - **[Examples Gallery](/examples/#embeddings-examples)** - See RAG examples in action
 - **[RAG in a Box Roadmap](../roadmap/)** - Upcoming vector store backends

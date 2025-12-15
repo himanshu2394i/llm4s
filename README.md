@@ -56,7 +56,7 @@ LLM4S provides a simple, robust, and scalable framework for building LLM applica
 - **MCP Support**: Integration with Model Context Protocol for richer context management.
 - **Agent Framework**: Build single or multi-agent workflows with standardized interfaces.
 - **Multimodal Generation**: Support for text, image, voice, and other LLM modalities.
-- **RAG (Retrieval-Augmented Generation)**: Built-in tools for search, embedding, and retrieval workflows.
+- **RAG (Retrieval-Augmented Generation)**: Built-in tools for search, embedding, retrieval workflows, and RAGAS evaluation with benchmarking harness.
 - **Observability**: Detailed trace logging, monitoring, and analytics for debugging and performance insights.
 
 ## Architecture
@@ -252,6 +252,7 @@ The roadmap covers:
 - [ ] Comprehensive toolchain for building LLM apps (LangChain/LangGraph equivalent)
   - [x] Tool calling ✅ *Complete*
   - [x] RAG search & retrieval ✅ *Complete* (vector memory, embeddings, document Q&A)
+  - [x] RAG evaluation & benchmarking ✅ *Complete* (RAGAS metrics, systematic comparison)
   - [x] Logging, tracking, and monitoring ✅ *Complete*
 - [ ] Agentic framework (like PydanticAI, CrewAI)
   - [x] Single-agent workflows ✅ *Complete*

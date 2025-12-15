@@ -110,7 +110,8 @@ graph TD
 | Feature | Progress | Blocking Issues |
 |---------|----------|-----------------|
 | **RAG Core Engine** | ✅ Complete | Retrieval pipeline shipped |
-| **RAG Evaluation** | ✅ Complete | RAGAS metrics framework |
+| **RAG Evaluation** | ✅ Complete | RAGAS metrics + benchmarking harness |
+| **RAG Benchmarking** | ✅ Complete | Chunking, fusion, embedding comparison |
 | **MCP Full Implementation** | ~50% | Full protocol, server implementation |
 | **Advanced Embeddings** | ~60% | Multi-provider support, caching |
 | **Enhanced Observability** | Planning | Plugin architecture, multi-backend |
@@ -138,11 +139,12 @@ The RAG pipeline follows a 5-phase roadmap toward a production-grade retrieval s
 | Document Chunking | ✅ Complete | Simple, sentence-aware, markdown-aware, semantic chunkers |
 | Ollama Embeddings | ✅ Complete | Local embedding support |
 
-#### Phase 3: Evaluation & Quality 🚧 IN PROGRESS
+#### Phase 3: Evaluation & Quality ✅ COMPLETE
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | RAGAS Evaluation | ✅ Complete | Faithfulness, answer relevancy, context precision/recall metrics |
+| RAG Benchmarking Harness | ✅ Complete | Systematic comparison of chunking, fusion, embedding strategies |
 | RAG-Specific Guardrails | 📋 Planned | Hallucination detection, PII masking, source attribution |
 | RAG Cost Tracking | 📋 Planned | Per-query cost, latency percentiles (p50/p95/p99) |
 | Embedding Drift Detection | 📋 Planned | Monitor embedding quality over time |
@@ -184,7 +186,8 @@ These components enable a turnkey "RAG in a Box" deployment and may live in a de
 | RAG Hybrid Search | ✅ Done | BM25 + vector fusion with RRF |
 | RAG Reranking Pipeline | ✅ Done | Cohere cross-encoder + LLM-based |
 | RAG Document Chunking | ✅ Done | Sentence-aware, semantic, markdown chunking |
-| **RAGAS Evaluation** | P0 | Context precision/recall, faithfulness, answer relevancy |
+| **RAGAS Evaluation** | ✅ Done | Context precision/recall, faithfulness, answer relevancy |
+| **RAG Benchmarking Harness** | ✅ Done | Systematic comparison of RAG configurations |
 | **RAG Guardrails** | P0 | Hallucination detection, PII masking, source attribution |
 | Reliable Calling | P0 | Retry with backoff, circuit breakers, deadlines |
 | Performance Benchmarks | P1 | JMH framework, baseline metrics |

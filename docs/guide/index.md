@@ -19,6 +19,11 @@ Comprehensive guides for LLM4S features.
   - **Reranking**: Cohere cross-encoder for result refinement
   - **Document Chunking**: Sentence-aware + simple chunking strategies
 
+- **[RAG Evaluation](rag-evaluation)** - Measure and improve RAG quality
+  - **RAGAS Metrics**: Faithfulness, answer relevancy, context precision/recall
+  - **Benchmarking Harness**: Compare chunking, fusion, and embedding strategies
+  - **Optimization Workflow**: Data-driven RAG improvement
+
 ### Multimodal Capabilities
 
 - **[Image Generation](image-generation)** - Generate images with DALL-E and other providers

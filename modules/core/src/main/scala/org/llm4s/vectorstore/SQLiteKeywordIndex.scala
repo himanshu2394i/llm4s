@@ -50,37 +50,31 @@ final class SQLiteKeywordIndex private (
     """)
 
     // FTS5 virtual table for full-text search
-    // content='' makes it an external content table (we manage content separately)
+    // Standard FTS5 table that stores its own content for snippet() support
     stmt.executeUpdate(s"""
       CREATE VIRTUAL TABLE IF NOT EXISTS $ftsTableName USING fts5(
         id,
-        content,
-        content='$tableName',
-        content_rowid='rowid'
+        content
       )
     """)
 
     // Triggers to keep FTS index in sync with main table
     stmt.executeUpdate(s"""
       CREATE TRIGGER IF NOT EXISTS ${tableName}_ai AFTER INSERT ON $tableName BEGIN
-        INSERT INTO $ftsTableName(rowid, id, content)
-        SELECT rowid, NEW.id, NEW.content FROM $tableName WHERE id = NEW.id;
+        INSERT INTO $ftsTableName(id, content) VALUES (NEW.id, NEW.content);
       END
     """)
 
     stmt.executeUpdate(s"""
       CREATE TRIGGER IF NOT EXISTS ${tableName}_ad AFTER DELETE ON $tableName BEGIN
-        INSERT INTO $ftsTableName($ftsTableName, rowid, id, content)
-        SELECT 'delete', rowid, OLD.id, OLD.content FROM $tableName WHERE id = OLD.id;
+        DELETE FROM $ftsTableName WHERE id = OLD.id;
       END
     """)
 
     stmt.executeUpdate(s"""
       CREATE TRIGGER IF NOT EXISTS ${tableName}_au AFTER UPDATE ON $tableName BEGIN
-        INSERT INTO $ftsTableName($ftsTableName, rowid, id, content)
-        SELECT 'delete', rowid, OLD.id, OLD.content FROM $tableName WHERE id = OLD.id;
-        INSERT INTO $ftsTableName(rowid, id, content)
-        SELECT rowid, NEW.id, NEW.content FROM $tableName WHERE id = NEW.id;
+        DELETE FROM $ftsTableName WHERE id = OLD.id;
+        INSERT INTO $ftsTableName(id, content) VALUES (NEW.id, NEW.content);
       END
     """)
 
@@ -296,13 +290,28 @@ final class SQLiteKeywordIndex private (
     builder.result()
   }
 
-  private def escapeQuery(query: String): String =
-    // FTS5 query escaping - wrap terms for safety
-    // Keep operators (AND, OR, NOT) and quotes
-    query
-      .replaceAll("[\"']", "\"") // Normalize quotes
-      .replaceAll("\\s+", " ")   // Normalize whitespace
+  private def escapeQuery(query: String): String = {
+    // FTS5 query escaping
+    // Preserve quoted phrases for phrase matching while escaping individual terms
+    val normalized = query
+      .replaceAll("\\s+", " ") // Normalize whitespace
       .trim
+
+    // Check if query already contains FTS5 phrase quotes
+    if (normalized.contains("\"")) {
+      // Query has explicit phrase markers - pass through with minimal escaping
+      // Just ensure single quotes become double quotes for FTS5
+      normalized.replace("'", "\"")
+    } else {
+      // No phrase markers - wrap each word in quotes to treat as literals
+      // This prevents FTS5 from interpreting special characters as operators
+      normalized
+        .split("\\s+")
+        .filter(_.nonEmpty)
+        .map(word => s""""$word"""")
+        .mkString(" ")
+    }
+  }
 
   private def buildFilterClause(filter: MetadataFilter): String = filter match {
     case MetadataFilter.All =>
