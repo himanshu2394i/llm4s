@@ -1,5 +1,6 @@
 package org.llm4s.vectorstore
 
+import org.llm4s.reranker.{ RerankRequest, Reranker }
 import org.llm4s.types.Result
 
 /**
@@ -131,6 +132,65 @@ final class HybridSearcher private (
       case ws: FusionStrategy.WeightedScore =>
         searchWithWeightedScore(queryEmbedding, queryText, topK, ws.vectorWeight, ws.keywordWeight, filter)
     }
+
+  /**
+   * Perform hybrid search with optional cross-encoder reranking.
+   *
+   * This method first performs hybrid search to get candidate documents,
+   * then optionally applies a reranker for improved precision. Reranking
+   * uses cross-encoder models that see both query and document together.
+   *
+   * @param queryEmbedding Query embedding for vector search
+   * @param queryText Query text for keyword search and reranking
+   * @param topK Maximum final results to return
+   * @param rerankTopK Number of candidates to retrieve for reranking (default: 50)
+   * @param strategy Fusion strategy (default: RRF)
+   * @param filter Optional metadata filter
+   * @param reranker Optional reranker (None = skip reranking)
+   * @return Reranked search results
+   *
+   * @example
+   * {{{
+   * val reranker = RerankerFactory.cohere(apiKey)
+   * val results = searcher.searchWithReranking(
+   *   embedding, "search query",
+   *   topK = 5,
+   *   rerankTopK = 30,
+   *   reranker = Some(reranker)
+   * )
+   * }}}
+   */
+  def searchWithReranking(
+    queryEmbedding: Array[Float],
+    queryText: String,
+    topK: Int = 10,
+    rerankTopK: Int = 50,
+    strategy: FusionStrategy = defaultStrategy,
+    filter: Option[MetadataFilter] = None,
+    reranker: Option[Reranker] = None
+  ): Result[Seq[HybridSearchResult]] =
+    for {
+      // Get more candidates for reranking
+      candidates <- search(queryEmbedding, queryText, rerankTopK, strategy, filter)
+
+      // Apply reranking if provided
+      reranked <- reranker match {
+        case Some(r) =>
+          val request = RerankRequest(
+            query = queryText,
+            documents = candidates.map(_.content),
+            topK = Some(topK)
+          )
+          r.rerank(request).map { response =>
+            response.results.map { rr =>
+              // Preserve original metadata but update score from reranker
+              candidates(rr.index).copy(score = rr.score)
+            }
+          }
+        case None =>
+          Right(candidates.take(topK))
+      }
+    } yield reranked
 
   /**
    * Search with vector similarity only.

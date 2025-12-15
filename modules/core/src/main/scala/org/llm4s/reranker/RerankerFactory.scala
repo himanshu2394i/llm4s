@@ -1,0 +1,151 @@
+package org.llm4s.reranker
+
+import org.llm4s.config.ConfigReader
+import org.llm4s.types.Result
+
+/**
+ * Factory for creating Reranker instances.
+ *
+ * Supports multiple backends:
+ * - Cohere: Cloud-based cross-encoder reranking API
+ * - LLM: Use existing LLMClient for reranking (planned)
+ * - None: Passthrough that preserves original order
+ *
+ * Usage:
+ * {{{
+ * // From explicit config
+ * val reranker = RerankerFactory.cohere(config)
+ *
+ * // From environment variables
+ * val reranker = RerankerFactory.fromEnv(configReader)
+ * }}}
+ */
+object RerankerFactory {
+
+  /** Reranker backend type */
+  sealed trait Backend {
+    def name: String
+  }
+
+  object Backend {
+    case object Cohere extends Backend { val name = "cohere" }
+    case object LLM    extends Backend { val name = "llm"    }
+    case object None   extends Backend { val name = "none"   }
+
+    def fromString(s: String): Option[Backend] = s.toLowerCase.trim match {
+      case "cohere"    => Some(Cohere)
+      case "llm"       => Some(LLM)
+      case "none" | "" => Some(None)
+      case _           => scala.None
+    }
+  }
+
+  /**
+   * Create a Cohere reranker from config.
+   *
+   * @param config Provider configuration
+   * @return Cohere reranker
+   */
+  def cohere(config: RerankProviderConfig): Reranker =
+    CohereReranker(config)
+
+  /**
+   * Create a Cohere reranker from individual parameters.
+   *
+   * @param apiKey Cohere API key
+   * @param model Reranking model (default: rerank-english-v3.0)
+   * @param baseUrl API base URL (default: https://api.cohere.ai)
+   * @return Cohere reranker
+   */
+  def cohere(
+    apiKey: String,
+    model: String = CohereReranker.DEFAULT_MODEL,
+    baseUrl: String = CohereReranker.DEFAULT_BASE_URL
+  ): Reranker =
+    CohereReranker(apiKey, model, baseUrl)
+
+  /**
+   * Create a reranker from environment variables.
+   *
+   * Reads the following environment variables:
+   * - RERANK_PROVIDER: "cohere", "llm", or "none" (default: none)
+   * - COHERE_API_KEY: API key for Cohere
+   * - COHERE_RERANK_BASE_URL: API base URL (default: https://api.cohere.ai)
+   * - COHERE_RERANK_MODEL: Model name (default: rerank-english-v3.0)
+   *
+   * @param configReader Configuration reader
+   * @return Optional reranker (None if disabled)
+   */
+  def fromEnv(configReader: ConfigReader): Result[Option[Reranker]] = {
+    val provider = configReader.get("RERANK_PROVIDER").getOrElse("none")
+
+    Backend.fromString(provider) match {
+      case Some(Backend.Cohere) =>
+        configReader.get("COHERE_API_KEY") match {
+          case Some(apiKey) if apiKey.nonEmpty =>
+            val baseUrl = configReader
+              .get("COHERE_RERANK_BASE_URL")
+              .getOrElse(CohereReranker.DEFAULT_BASE_URL)
+            val model = configReader
+              .get("COHERE_RERANK_MODEL")
+              .getOrElse(CohereReranker.DEFAULT_MODEL)
+            Right(Some(cohere(apiKey, model, baseUrl)))
+
+          case _ =>
+            Left(
+              RerankError(
+                code = Some("400"),
+                message = "COHERE_API_KEY is required when RERANK_PROVIDER=cohere",
+                provider = "cohere"
+              )
+            )
+        }
+
+      case Some(Backend.LLM) =>
+        // LLM-based reranking requires an LLMClient to be provided separately
+        Left(
+          RerankError(
+            code = Some("501"),
+            message = "LLM-based reranking requires explicit LLMClient. Use RerankerFactory.llm(client) instead.",
+            provider = "llm"
+          )
+        )
+
+      case Some(Backend.None) =>
+        Right(scala.None)
+
+      case scala.None =>
+        Left(
+          RerankError(
+            code = Some("400"),
+            message = s"Unknown RERANK_PROVIDER: $provider. Valid values: cohere, llm, none",
+            provider = "unknown"
+          )
+        )
+    }
+  }
+
+  /**
+   * No-op reranker that passes through results unchanged.
+   *
+   * Useful for testing or when reranking is disabled.
+   * Results preserve original order with monotonically decreasing scores.
+   */
+  val passthrough: Reranker = new Reranker {
+    override def rerank(request: RerankRequest): Result[RerankResponse] = {
+      val results = request.documents.zipWithIndex.map { case (doc, idx) =>
+        // Assign decreasing scores to preserve original order
+        RerankResult(index = idx, score = 1.0 - (idx * 0.001), document = doc)
+      }
+
+      val topK = request.topK.getOrElse(results.size)
+
+      Right(
+        RerankResponse(
+          results = results.take(topK),
+          metadata = Map("provider" -> "passthrough")
+        )
+      )
+    }
+  }
+}

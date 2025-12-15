@@ -492,6 +492,203 @@ val configSearcher = HybridSearcher(config).getOrElse(???)
 
 ---
 
+## Reranking
+
+Reranking improves retrieval quality by re-scoring initial search results using a more powerful model (like Cohere's cross-encoder). This is particularly useful when you retrieve many candidates and want to refine the ranking.
+
+### Quick Start
+
+```scala
+import org.llm4s.vectorstore._
+import org.llm4s.reranker._
+
+// Create hybrid searcher and reranker
+val searcher = HybridSearcher.inMemory().getOrElse(???)
+val reranker = RerankerFactory.cohere(apiKey = "your-cohere-api-key")
+
+// Search with reranking
+val results = searcher.searchWithReranking(
+  queryEmbedding = embedding,
+  queryText = "What is Scala?",
+  topK = 5,           // Final results to return
+  rerankTopK = 50,    // Candidates to rerank
+  reranker = Some(reranker)
+)
+
+results.foreach { r =>
+  println(s"${r.id}: ${r.score}")
+}
+```
+
+### Reranker Options
+
+```scala
+import org.llm4s.reranker._
+
+// Cohere reranker (recommended for production)
+val cohereReranker = RerankerFactory.cohere(
+  apiKey = "your-api-key",
+  model = "rerank-english-v3.0",  // or rerank-multilingual-v3.0
+  baseUrl = "https://api.cohere.ai"
+)
+
+// Passthrough reranker (no-op, preserves original order)
+val passthrough = RerankerFactory.passthrough
+
+// From environment variables
+// Set RERANK_PROVIDER=cohere, COHERE_API_KEY=xxx
+val fromEnv = RerankerFactory.fromEnv(configReader)
+```
+
+### Direct Reranking API
+
+```scala
+import org.llm4s.reranker._
+
+val reranker = RerankerFactory.cohere(apiKey = "xxx")
+
+val request = RerankRequest(
+  query = "What is Scala?",
+  documents = Seq(
+    "Scala is a programming language",
+    "Python is popular for ML",
+    "Scala runs on the JVM"
+  ),
+  topK = Some(2)
+)
+
+val response = reranker.rerank(request)
+response.foreach { r =>
+  r.results.foreach { result =>
+    println(s"[${result.index}] ${result.score}: ${result.document}")
+  }
+}
+```
+
+### Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `RERANK_PROVIDER` | Provider: cohere, none | none |
+| `COHERE_API_KEY` | Cohere API key | - |
+| `COHERE_RERANK_MODEL` | Model name | rerank-english-v3.0 |
+| `COHERE_RERANK_BASE_URL` | API base URL | https://api.cohere.ai |
+
+---
+
+## Document Chunking
+
+Document chunking splits text into manageable pieces for embedding and retrieval. LLM4S provides multiple chunking strategies optimized for different content types.
+
+### Quick Start
+
+```scala
+import org.llm4s.chunking._
+
+// Create a sentence-aware chunker (recommended)
+val chunker = ChunkerFactory.sentence()
+
+// Chunk a document
+val chunks = chunker.chunk(documentText, ChunkingConfig(
+  targetSize = 800,   // Target chunk size in characters
+  maxSize = 1200,     // Hard limit for chunk size
+  overlap = 150       // Overlap between consecutive chunks
+))
+
+chunks.foreach { chunk =>
+  println(s"[${chunk.index}] ${chunk.content.take(50)}...")
+}
+```
+
+### Chunking Strategies
+
+```scala
+import org.llm4s.chunking._
+
+// Sentence-aware chunking (recommended for most text)
+// Respects sentence boundaries for semantic coherence
+val sentenceChunker = ChunkerFactory.sentence()
+
+// Simple character-based chunking
+// Fast but may split mid-sentence
+val simpleChunker = ChunkerFactory.simple()
+
+// Auto-detect based on content
+// Detects markdown and chooses appropriate strategy
+val autoChunker = ChunkerFactory.auto(documentText)
+
+// By strategy name
+val chunker = ChunkerFactory.create("sentence")  // or "simple"
+```
+
+### Configuration Presets
+
+```scala
+import org.llm4s.chunking._
+
+// Default: 800 char target, 150 overlap
+val defaultConfig = ChunkingConfig.default
+
+// Small chunks: 400 char target, 75 overlap
+// Better for precise retrieval
+val smallConfig = ChunkingConfig.small
+
+// Large chunks: 1500 char target, 250 overlap
+// Better for broader context
+val largeConfig = ChunkingConfig.large
+
+// No overlap
+val noOverlapConfig = ChunkingConfig.noOverlap
+
+// Custom configuration
+val customConfig = ChunkingConfig(
+  targetSize = 600,
+  maxSize = 900,
+  overlap = 100,
+  minChunkSize = 50,
+  preserveCodeBlocks = true,
+  preserveHeadings = true
+)
+```
+
+### With Source Metadata
+
+```scala
+import org.llm4s.chunking._
+
+val chunker = ChunkerFactory.sentence()
+
+// Chunks include source file in metadata
+val chunks = chunker.chunkWithSource(
+  text = documentText,
+  sourceFile = "docs/guide.md",
+  config = ChunkingConfig.default
+)
+
+chunks.foreach { chunk =>
+  println(s"From: ${chunk.metadata.sourceFile.getOrElse("unknown")}")
+  println(s"Content: ${chunk.content.take(50)}...")
+}
+```
+
+### Chunking Best Practices
+
+| Content Type | Recommended Strategy | Config |
+|--------------|---------------------|--------|
+| Prose/articles | `sentence` | `default` |
+| Technical docs | `sentence` | `large` |
+| Code files | `simple` | Custom with no overlap |
+| Q&A pairs | `sentence` | `small` |
+| Mixed content | `auto` | `default` |
+
+**Tips:**
+- Use overlap for context continuity in retrieval
+- Smaller chunks improve retrieval precision but may lose context
+- Larger chunks preserve context but may dilute relevance
+- Sentence chunking prevents mid-thought splits
+
+---
+
 ## Integration with RAG Pipeline
 
 ### Complete RAG Example

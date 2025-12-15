@@ -109,7 +109,7 @@ graph TD
 
 | Feature | Progress | Blocking Issues |
 |---------|----------|-----------------|
-| **RAG Pipeline** | ~85% | Hybrid search (BM25 + vector), reranking |
+| **RAG Pipeline** | ~95% | Semantic chunking, MarkdownChunker |
 | **MCP Full Implementation** | ~50% | Full protocol, server implementation |
 | **Advanced Embeddings** | ~60% | Multi-provider support, caching |
 | **Enhanced Observability** | Planning | Plugin architecture, multi-backend |
@@ -124,7 +124,8 @@ graph TD
 | Qdrant Backend | ✅ Complete | REST API, local + cloud |
 | BM25 Keyword Index | ✅ Complete | SQLite FTS5 with BM25 scoring |
 | Hybrid Search Fusion | ✅ Complete | RRF + weighted score strategies |
-| Reranking Pipeline | 📋 Planned | Cross-encoder support |
+| Reranking Pipeline | ✅ Complete | Cohere cross-encoder, passthrough |
+| Document Chunking | ✅ Complete | Sentence-aware, simple chunkers |
 
 ---
 
@@ -136,7 +137,8 @@ graph TD
 |---------|----------|-------------|
 | RAG Vector Integrations | ✅ Done | SQLite, pgvector, Qdrant complete |
 | RAG Hybrid Search | ✅ Done | BM25 + vector fusion with RRF |
-| RAG Document Chunking | P0 | Smart chunking for different document types |
+| RAG Reranking Pipeline | ✅ Done | Cohere cross-encoder + passthrough |
+| RAG Document Chunking | ✅ Done | Sentence-aware, simple chunking |
 | Reliable Calling | P0 | Retry with backoff, circuit breakers, deadlines |
 | Performance Benchmarks | P1 | JMH framework, baseline metrics |
 | Security Audit | P1 | Threat model, vulnerability scanning |
