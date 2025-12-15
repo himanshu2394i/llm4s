@@ -4,6 +4,7 @@ import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.EmbeddingClient
 import org.llm4s.llmconnect.config.EmbeddingModelConfig
 import org.llm4s.rag.evaluation.metrics._
+import org.llm4s.trace.EnhancedTracing
 import org.llm4s.types.Result
 
 /**
@@ -23,6 +24,7 @@ import org.llm4s.types.Result
  * @param embeddingModelConfig Configuration for the embedding model
  * @param metrics Custom metrics to use (defaults to all four RAGAS metrics)
  * @param options Evaluation options (parallelism, timeouts)
+ * @param tracer Optional tracer for cost tracking
  *
  * @example
  * {{{{
@@ -52,12 +54,19 @@ class RAGASEvaluator(
   embeddingClient: EmbeddingClient,
   embeddingModelConfig: EmbeddingModelConfig,
   metrics: Seq[RAGASMetric] = Seq.empty,
-  options: EvaluatorOptions = EvaluatorOptions()
+  options: EvaluatorOptions = EvaluatorOptions(),
+  private val tracer: Option[EnhancedTracing] = None
 ) {
+
+  // Traced embedding client for metrics that use embeddings
+  private val tracedEmbeddingClient: EmbeddingClient = tracer match {
+    case Some(t) => embeddingClient.withTracing(t).withOperation("evaluation")
+    case None    => embeddingClient
+  }
 
   private val defaultMetrics: Seq[RAGASMetric] = Seq(
     Faithfulness(llmClient),
-    AnswerRelevancy(llmClient, embeddingClient, embeddingModelConfig),
+    AnswerRelevancy(llmClient, tracedEmbeddingClient, embeddingModelConfig),
     ContextPrecision(llmClient),
     ContextRecall(llmClient)
   )
@@ -80,6 +89,7 @@ class RAGASEvaluator(
    * @return Evaluation result with all metric scores and composite RAGAS score
    */
   def evaluate(sample: EvalSample): Result[EvalResult] = {
+    val startTime         = System.nanoTime()
     val applicableMetrics = activeMetrics.filter(_.canEvaluate(sample))
 
     if (applicableMetrics.isEmpty) {
@@ -92,7 +102,7 @@ class RAGASEvaluator(
     val successes = results.collect { case Right(r) => r }
     val failures  = results.collect { case Left(e) => e }
 
-    if (successes.isEmpty && failures.nonEmpty) {
+    val evalResult = if (successes.isEmpty && failures.nonEmpty) {
       Left(failures.head)
     } else {
       val ragasScore = if (successes.isEmpty) 0.0 else successes.map(_.score).sum / successes.size
@@ -105,6 +115,19 @@ class RAGASEvaluator(
         )
       )
     }
+
+    // Emit trace event for evaluation completion
+    evalResult.foreach { _ =>
+      val durationMs = (System.nanoTime() - startTime) / 1_000_000
+      tracer.foreach(
+        _.traceRAGOperation(
+          operation = "evaluate",
+          durationMs = durationMs
+        )
+      )
+    }
+
+    evalResult
   }
 
   /**
@@ -194,7 +217,7 @@ class RAGASEvaluator(
    */
   def withMetrics(metricNames: Set[String]): RAGASEvaluator = {
     val selectedMetrics = activeMetrics.filter(m => metricNames.contains(m.name))
-    new RAGASEvaluator(llmClient, embeddingClient, embeddingModelConfig, selectedMetrics, options)
+    new RAGASEvaluator(llmClient, embeddingClient, embeddingModelConfig, selectedMetrics, options, tracer)
   }
 
   /**
@@ -204,7 +227,16 @@ class RAGASEvaluator(
    * @return A new evaluator with the specified options
    */
   def withOptions(newOptions: EvaluatorOptions): RAGASEvaluator =
-    new RAGASEvaluator(llmClient, embeddingClient, embeddingModelConfig, activeMetrics.toSeq, newOptions)
+    new RAGASEvaluator(llmClient, embeddingClient, embeddingModelConfig, activeMetrics.toSeq, newOptions, tracer)
+
+  /**
+   * Create a new evaluator with tracing enabled.
+   *
+   * @param newTracer The tracer to use for cost tracking
+   * @return A new evaluator with tracing enabled
+   */
+  def withTracing(newTracer: EnhancedTracing): RAGASEvaluator =
+    new RAGASEvaluator(llmClient, embeddingClient, embeddingModelConfig, metrics, options, Some(newTracer))
 }
 
 object RAGASEvaluator {

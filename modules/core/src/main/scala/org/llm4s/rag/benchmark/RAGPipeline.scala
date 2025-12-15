@@ -5,6 +5,7 @@ import org.llm4s.config.{ ConfigKeys, ConfigReader }
 import org.llm4s.llmconnect.{ EmbeddingClient, LLMClient }
 import org.llm4s.llmconnect.config.{ EmbeddingModelConfig, EmbeddingProviderConfig }
 import org.llm4s.llmconnect.model._
+import org.llm4s.trace.EnhancedTracing
 import org.llm4s.types.Result
 import org.llm4s.vectorstore._
 
@@ -20,6 +21,7 @@ import org.llm4s.vectorstore._
  * @param embeddingModelConfig Model config for embedding requests
  * @param hybridSearcher Hybrid search with vector + keyword fusion
  * @param chunker Document chunker based on config strategy
+ * @param tracer Optional tracer for cost tracking
  */
 final class RAGPipeline private (
   val config: RAGExperimentConfig,
@@ -27,8 +29,15 @@ final class RAGPipeline private (
   val embeddingClient: EmbeddingClient,
   val embeddingModelConfig: EmbeddingModelConfig,
   val hybridSearcher: HybridSearcher,
-  val chunker: DocumentChunker
+  val chunker: DocumentChunker,
+  private val tracer: Option[EnhancedTracing]
 ) {
+
+  // Embedding client with tracing enabled if tracer is provided
+  private val tracedEmbeddingClient: EmbeddingClient = tracer match {
+    case Some(t) => embeddingClient.withTracing(t)
+    case None    => embeddingClient
+  }
 
   private var documentCount: Int = 0
   private var chunkCount: Int    = 0
@@ -77,12 +86,17 @@ final class RAGPipeline private (
     if (chunks.isEmpty) {
       Right(0)
     } else {
+      val startTime                    = System.nanoTime()
+      var embeddingTokens: Option[Int] = None
+
       // Get embeddings for all chunks
       val contents = chunks.map(_.content)
-      val request  = EmbeddingRequest(input = contents, model = embeddingModelConfig)
+      val request =
+        EmbeddingRequest(input = contents, model = embeddingModelConfig)
 
-      for {
-        response <- embeddingClient.embed(request)
+      val result = for {
+        response <- tracedEmbeddingClient.withOperation("indexing").embed(request)
+        _          = { embeddingTokens = response.usage.map(_.totalTokens) }
         embeddings = response.embeddings
         _ <- {
           // Create vector records
@@ -112,6 +126,20 @@ final class RAGPipeline private (
         documentCount += 1
         chunks.size
       }
+
+      // Emit RAG operation completed event
+      result.foreach { _ =>
+        val durationMs = (System.nanoTime() - startTime) / 1_000_000
+        tracer.foreach(
+          _.traceRAGOperation(
+            operation = "index",
+            durationMs = durationMs,
+            embeddingTokens = embeddingTokens
+          )
+        )
+      }
+
+      result
     }
 
   /**
@@ -122,13 +150,16 @@ final class RAGPipeline private (
    * @return Search results
    */
   def search(query: String, topK: Option[Int] = None): Result[Seq[HybridSearchResult]] = {
-    val k = topK.getOrElse(config.topK)
+    val startTime                    = System.nanoTime()
+    var embeddingTokens: Option[Int] = None
+    val k                            = topK.getOrElse(config.topK)
 
     // Get query embedding
     val request = EmbeddingRequest(input = Seq(query), model = embeddingModelConfig)
 
-    for {
-      response <- embeddingClient.embed(request)
+    val result = for {
+      response <- tracedEmbeddingClient.withOperation("query").embed(request)
+      _              = { embeddingTokens = response.usage.map(_.totalTokens) }
       queryEmbedding = response.embeddings.head.map(_.toFloat).toArray
       results <-
         if (config.useReranker) {
@@ -148,6 +179,20 @@ final class RAGPipeline private (
           )
         }
     } yield results
+
+    // Emit RAG operation completed event
+    result.foreach { _ =>
+      val durationMs = (System.nanoTime() - startTime) / 1_000_000
+      tracer.foreach(
+        _.traceRAGOperation(
+          operation = "search",
+          durationMs = durationMs,
+          embeddingTokens = embeddingTokens
+        )
+      )
+    }
+
+    result
   }
 
   /**
@@ -157,22 +202,53 @@ final class RAGPipeline private (
    * @param topK Number of chunks to retrieve (default from config)
    * @return The generated answer and retrieved contexts
    */
-  def answer(question: String, topK: Option[Int] = None): Result[RAGAnswer] =
-    for {
+  def answer(question: String, topK: Option[Int] = None): Result[RAGAnswer] = {
+    val startTime                        = System.nanoTime()
+    var llmPromptTokens: Option[Int]     = None
+    var llmCompletionTokens: Option[Int] = None
+
+    val result = for {
       searchResults <- search(question, topK)
       contexts = searchResults.map(_.content)
-      answer <- generateAnswer(question, contexts)
-    } yield RAGAnswer(
-      question = question,
-      answer = answer,
-      contexts = contexts,
-      searchResults = searchResults
-    )
+      answerWithUsage <- generateAnswerWithUsage(question, contexts)
+    } yield {
+      val (answerText, usage) = answerWithUsage
+      usage.foreach { u =>
+        llmPromptTokens = Some(u.promptTokens)
+        llmCompletionTokens = Some(u.completionTokens)
+      }
+      RAGAnswer(
+        question = question,
+        answer = answerText,
+        contexts = contexts,
+        searchResults = searchResults
+      )
+    }
+
+    // Emit RAG operation completed event for answer generation
+    result.foreach { _ =>
+      val durationMs = (System.nanoTime() - startTime) / 1_000_000
+      tracer.foreach(
+        _.traceRAGOperation(
+          operation = "answer",
+          durationMs = durationMs,
+          llmPromptTokens = llmPromptTokens,
+          llmCompletionTokens = llmCompletionTokens
+        )
+      )
+    }
+
+    result
+  }
 
   /**
    * Generate answer from question and contexts using LLM.
+   * Returns answer and optional token usage.
    */
-  private def generateAnswer(question: String, contexts: Seq[String]): Result[String] = {
+  private def generateAnswerWithUsage(
+    question: String,
+    contexts: Seq[String]
+  ): Result[(String, Option[TokenUsage])] = {
     val contextText = contexts.zipWithIndex
       .map { case (ctx, i) => s"[${i + 1}] $ctx" }
       .mkString("\n\n")
@@ -200,7 +276,7 @@ final class RAGPipeline private (
 
     val options = CompletionOptions(temperature = 0.0, maxTokens = Some(500))
 
-    llmClient.complete(conversation, options).map(_.content)
+    llmClient.complete(conversation, options).map(c => (c.content, c.usage))
   }
 
   /** Get the number of documents indexed */
@@ -246,12 +322,14 @@ object RAGPipeline {
    * @param config Experiment configuration
    * @param llmClient LLM client for answer generation
    * @param embeddingClient Embedding client for vectorization
+   * @param tracer Optional tracer for cost tracking
    * @return Configured pipeline or error
    */
   def fromConfig(
     config: RAGExperimentConfig,
     llmClient: LLMClient,
-    embeddingClient: EmbeddingClient
+    embeddingClient: EmbeddingClient,
+    tracer: Option[EnhancedTracing] = None
   ): Result[RAGPipeline] = {
     val embeddingModelConfig = EmbeddingModelConfig(
       config.embeddingConfig.model,
@@ -274,7 +352,8 @@ object RAGPipeline {
         embeddingClient = embeddingClient,
         embeddingModelConfig = embeddingModelConfig,
         hybridSearcher = searcher,
-        chunker = chunker
+        chunker = chunker,
+        tracer = tracer
       )
     }
   }
@@ -287,6 +366,7 @@ object RAGPipeline {
    * @param embeddingClient Embedding client
    * @param vectorStore Custom vector store
    * @param keywordIndex Custom keyword index
+   * @param tracer Optional tracer for cost tracking
    * @return Configured pipeline
    */
   def withStores(
@@ -294,7 +374,8 @@ object RAGPipeline {
     llmClient: LLMClient,
     embeddingClient: EmbeddingClient,
     vectorStore: VectorStore,
-    keywordIndex: KeywordIndex
+    keywordIndex: KeywordIndex,
+    tracer: Option[EnhancedTracing] = None
   ): RAGPipeline = {
     val embeddingModelConfig = EmbeddingModelConfig(
       config.embeddingConfig.model,
@@ -316,7 +397,8 @@ object RAGPipeline {
       embeddingClient = embeddingClient,
       embeddingModelConfig = embeddingModelConfig,
       hybridSearcher = searcher,
-      chunker = chunker
+      chunker = chunker,
+      tracer = tracer
     )
   }
 

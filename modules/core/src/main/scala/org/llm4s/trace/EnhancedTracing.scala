@@ -1,7 +1,7 @@
 package org.llm4s.trace
 
 import org.llm4s.agent.AgentState
-import org.llm4s.llmconnect.model.{ Completion, TokenUsage }
+import org.llm4s.llmconnect.model.{ Completion, EmbeddingUsage, TokenUsage }
 import org.llm4s.types.Result
 
 /**
@@ -19,6 +19,73 @@ trait EnhancedTracing {
   final def traceEvent(event: String): Result[Unit] = {
     val customEvent = TraceEvent.CustomEvent(event, ujson.Obj())
     this.traceEvent(customEvent)
+  }
+
+  /**
+   * Trace embedding token usage for cost tracking.
+   *
+   * @param usage Token usage from embedding operation
+   * @param model Embedding model name
+   * @param operation Type: "indexing", "query", "evaluation"
+   * @param inputCount Number of texts embedded
+   */
+  final def traceEmbeddingUsage(
+    usage: EmbeddingUsage,
+    model: String,
+    operation: String,
+    inputCount: Int
+  ): Result[Unit] = {
+    val event = TraceEvent.EmbeddingUsageRecorded(usage, model, operation, inputCount)
+    this.traceEvent(event)
+  }
+
+  /**
+   * Trace cost in USD for any operation.
+   *
+   * @param costUsd Cost in US dollars
+   * @param model Model name
+   * @param operation Type: "embedding", "completion", "evaluation"
+   * @param tokenCount Total tokens used
+   * @param costType Category: "embedding", "completion", "total"
+   */
+  final def traceCost(
+    costUsd: Double,
+    model: String,
+    operation: String,
+    tokenCount: Int,
+    costType: String
+  ): Result[Unit] = {
+    val event = TraceEvent.CostRecorded(costUsd, model, operation, tokenCount, costType)
+    this.traceEvent(event)
+  }
+
+  /**
+   * Trace completion of a RAG operation with metrics.
+   *
+   * @param operation Type: "index", "search", "answer", "evaluate"
+   * @param durationMs Duration in milliseconds
+   * @param embeddingTokens Optional embedding token count
+   * @param llmPromptTokens Optional LLM prompt tokens
+   * @param llmCompletionTokens Optional LLM completion tokens
+   * @param totalCostUsd Optional total cost in USD
+   */
+  final def traceRAGOperation(
+    operation: String,
+    durationMs: Long,
+    embeddingTokens: Option[Int] = None,
+    llmPromptTokens: Option[Int] = None,
+    llmCompletionTokens: Option[Int] = None,
+    totalCostUsd: Option[Double] = None
+  ): Result[Unit] = {
+    val event = TraceEvent.RAGOperationCompleted(
+      operation,
+      durationMs,
+      embeddingTokens,
+      llmPromptTokens,
+      llmCompletionTokens,
+      totalCostUsd
+    )
+    this.traceEvent(event)
   }
 }
 

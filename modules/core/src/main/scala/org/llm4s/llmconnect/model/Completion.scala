@@ -83,6 +83,17 @@ case class TokenUsage(
 }
 
 /**
+ * Token usage statistics for an embedding request.
+ *
+ * @param promptTokens Number of tokens in the input text(s).
+ * @param totalTokens Total tokens used (same as promptTokens for embeddings).
+ */
+case class EmbeddingUsage(
+  promptTokens: Int,
+  totalTokens: Int
+)
+
+/**
  * Represents a streamed chunk of completion data.
  *
  * @param id Unique identifier for the stream.

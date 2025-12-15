@@ -7,16 +7,18 @@ package org.llm4s.llmconnect.model
  * @param metadata    Provider/model info etc. (e.g., "provider" -> "openai", "model" -> "...").
  * @param modality    Optional overall modality tag (Text, Audio, Video) when known.
  * @param dim         Optional dimensionality, if convenient to surface at response-level.
+ * @param usage       Optional token usage statistics (available from providers like OpenAI).
  *
  * Notes:
- * - Defaults on `metadata`, `modality`, and `dim` keep old call-sites source-compatible.
- * - Providers can set `modality`/`dim` when they know it; callers can ignore safely.
+ * - Defaults on `metadata`, `modality`, `dim`, and `usage` keep old call-sites source-compatible.
+ * - Providers can set `modality`/`dim`/`usage` when they know it; callers can ignore safely.
  */
 final case class EmbeddingResponse(
   embeddings: Seq[Seq[Double]],
   metadata: Map[String, String] = Map.empty,
   modality: Option[Modality] = None,
-  dim: Option[Int] = None
+  dim: Option[Int] = None,
+  usage: Option[EmbeddingUsage] = None
 )
 
 object EmbeddingResponse {

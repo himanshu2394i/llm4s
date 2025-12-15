@@ -58,7 +58,17 @@ class OpenAIEmbeddingProvider(config: ConfigReader) extends EmbeddingProvider {
               val json     = read(body)
               val vectors  = json("data").arr.map(r => r("embedding").arr.map(_.num).toVector).toSeq
               val metadata = Map("provider" -> "openai", "model" -> model, "count" -> input.size.toString)
-              EmbeddingResponse(embeddings = vectors, metadata = metadata)
+
+              // Extract token usage if available
+              val usage = json.obj.get("usage").flatMap { usageJson =>
+                Try {
+                  val promptTokens = usageJson("prompt_tokens").num.toInt
+                  val totalTokens  = usageJson("total_tokens").num.toInt
+                  EmbeddingUsage(promptTokens = promptTokens, totalTokens = totalTokens)
+                }.toOption
+              }
+
+              EmbeddingResponse(embeddings = vectors, metadata = metadata, usage = usage)
             }.toEither.left
               .map { ex =>
                 logger.error(s"[OpenAIEmbeddingProvider] Parse error: ${ex.getMessage}")
@@ -119,7 +129,17 @@ object OpenAIEmbeddingProvider {
               val json     = read(body)
               val vectors  = json("data").arr.map(r => r("embedding").arr.map(_.num).toVector).toSeq
               val metadata = Map("provider" -> "openai", "model" -> model, "count" -> input.size.toString)
-              EmbeddingResponse(embeddings = vectors, metadata = metadata)
+
+              // Extract token usage if available
+              val usage = json.obj.get("usage").flatMap { usageJson =>
+                Try {
+                  val promptTokens = usageJson("prompt_tokens").num.toInt
+                  val totalTokens  = usageJson("total_tokens").num.toInt
+                  EmbeddingUsage(promptTokens = promptTokens, totalTokens = totalTokens)
+                }.toOption
+              }
+
+              EmbeddingResponse(embeddings = vectors, metadata = metadata, usage = usage)
             }.toEither.left
               .map { ex =>
                 logger.error(s"[OpenAIEmbeddingProvider] Parse error: ${ex.getMessage}")

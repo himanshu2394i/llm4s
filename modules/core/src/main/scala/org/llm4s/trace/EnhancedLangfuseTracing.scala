@@ -255,6 +255,97 @@ class EnhancedLangfuseTracing(
             )
           )
         )
+
+      case e: TraceEvent.EmbeddingUsageRecorded =>
+        ujson.Obj(
+          "id"        -> uuid,
+          "timestamp" -> now,
+          "type"      -> "event-create",
+          "body" -> ujson.Obj(
+            "id"        -> uuid,
+            "timestamp" -> now,
+            "name"      -> s"Embedding Usage - ${e.operation}",
+            "input" -> ujson.Obj(
+              "model"       -> e.model,
+              "operation"   -> e.operation,
+              "input_count" -> e.inputCount
+            ),
+            "output" -> ujson.Obj(
+              "prompt_tokens" -> e.usage.promptTokens,
+              "total_tokens"  -> e.usage.totalTokens
+            ),
+            "metadata" -> ujson.Obj(
+              "model"       -> e.model,
+              "operation"   -> e.operation,
+              "input_count" -> e.inputCount,
+              "token_type"  -> "embedding_usage"
+            )
+          )
+        )
+
+      case e: TraceEvent.CostRecorded =>
+        ujson.Obj(
+          "id"        -> uuid,
+          "timestamp" -> now,
+          "type"      -> "event-create",
+          "body" -> ujson.Obj(
+            "id"        -> uuid,
+            "timestamp" -> now,
+            "name"      -> s"Cost - ${e.operation}",
+            "level"     -> "DEFAULT",
+            "input" -> ujson.Obj(
+              "model"       -> e.model,
+              "operation"   -> e.operation,
+              "token_count" -> e.tokenCount,
+              "cost_type"   -> e.costType
+            ),
+            "output" -> ujson.Obj(
+              "cost_usd" -> e.costUsd
+            ),
+            "metadata" -> ujson.Obj(
+              "model"       -> e.model,
+              "operation"   -> e.operation,
+              "token_count" -> e.tokenCount,
+              "cost_type"   -> e.costType,
+              "cost_usd"    -> e.costUsd
+            )
+          )
+        )
+
+      case e: TraceEvent.RAGOperationCompleted =>
+        val outputObj = ujson.Obj(
+          "operation"   -> e.operation,
+          "duration_ms" -> e.durationMs
+        )
+        e.embeddingTokens.foreach(t => outputObj("embedding_tokens") = t)
+        e.llmPromptTokens.foreach(t => outputObj("llm_prompt_tokens") = t)
+        e.llmCompletionTokens.foreach(t => outputObj("llm_completion_tokens") = t)
+        e.totalCostUsd.foreach(c => outputObj("total_cost_usd") = c)
+
+        val metadataObj = ujson.Obj(
+          "operation"   -> e.operation,
+          "duration_ms" -> e.durationMs
+        )
+        e.embeddingTokens.foreach(t => metadataObj("embedding_tokens") = t)
+        e.llmPromptTokens.foreach(t => metadataObj("llm_prompt_tokens") = t)
+        e.llmCompletionTokens.foreach(t => metadataObj("llm_completion_tokens") = t)
+        e.totalCostUsd.foreach(c => metadataObj("total_cost_usd") = c)
+
+        ujson.Obj(
+          "id"        -> uuid,
+          "timestamp" -> now,
+          "type"      -> "span-create",
+          "body" -> ujson.Obj(
+            "id"        -> uuid,
+            "timestamp" -> now,
+            "name"      -> s"RAG ${e.operation}",
+            "input" -> ujson.Obj(
+              "operation" -> e.operation
+            ),
+            "output"   -> outputObj,
+            "metadata" -> metadataObj
+          )
+        )
     }
 
     batchEvents += langfuseEvent

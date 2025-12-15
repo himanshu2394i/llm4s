@@ -1,6 +1,6 @@
 package org.llm4s.trace
 
-import org.llm4s.llmconnect.model.TokenUsage
+import org.llm4s.llmconnect.model.{ EmbeddingUsage, TokenUsage }
 
 import java.time.Instant
 import java.util.UUID
@@ -130,6 +130,97 @@ object TraceEvent {
       "name"       -> name,
       "data"       -> data
     )
+  }
+
+  /**
+   * Tracks embedding token usage for cost analysis.
+   *
+   * @param usage Token usage statistics from embedding operation
+   * @param model Embedding model name (e.g., "text-embedding-3-small")
+   * @param operation Type of operation: "indexing", "query", "evaluation"
+   * @param inputCount Number of texts embedded in this operation
+   */
+  case class EmbeddingUsageRecorded(
+    usage: EmbeddingUsage,
+    model: String,
+    operation: String,
+    inputCount: Int,
+    timestamp: Instant = Instant.now()
+  ) extends TraceEvent {
+    def eventType: String = "embedding_usage_recorded"
+    def toJson: ujson.Value = ujson.Obj(
+      "event_type"    -> eventType,
+      "timestamp"     -> timestamp.toString,
+      "model"         -> model,
+      "operation"     -> operation,
+      "input_count"   -> inputCount,
+      "prompt_tokens" -> usage.promptTokens,
+      "total_tokens"  -> usage.totalTokens
+    )
+  }
+
+  /**
+   * Tracks cost in USD for any model operation.
+   *
+   * @param costUsd Estimated cost in US dollars
+   * @param model Model name used for pricing lookup
+   * @param operation Type of operation: "embedding", "completion", "evaluation"
+   * @param tokenCount Total tokens consumed
+   * @param costType Category: "embedding", "completion", "total"
+   */
+  case class CostRecorded(
+    costUsd: Double,
+    model: String,
+    operation: String,
+    tokenCount: Int,
+    costType: String,
+    timestamp: Instant = Instant.now()
+  ) extends TraceEvent {
+    def eventType: String = "cost_recorded"
+    def toJson: ujson.Value = ujson.Obj(
+      "event_type"  -> eventType,
+      "timestamp"   -> timestamp.toString,
+      "cost_usd"    -> costUsd,
+      "model"       -> model,
+      "operation"   -> operation,
+      "token_count" -> tokenCount,
+      "cost_type"   -> costType
+    )
+  }
+
+  /**
+   * Tracks completion of a RAG operation with full metrics.
+   *
+   * @param operation Type: "index", "search", "answer", "evaluate"
+   * @param durationMs Wall-clock duration in milliseconds
+   * @param embeddingTokens Optional token count for embedding operations
+   * @param llmPromptTokens Optional prompt tokens for LLM operations
+   * @param llmCompletionTokens Optional completion tokens for LLM operations
+   * @param totalCostUsd Optional accumulated cost in USD
+   */
+  case class RAGOperationCompleted(
+    operation: String,
+    durationMs: Long,
+    embeddingTokens: Option[Int] = None,
+    llmPromptTokens: Option[Int] = None,
+    llmCompletionTokens: Option[Int] = None,
+    totalCostUsd: Option[Double] = None,
+    timestamp: Instant = Instant.now()
+  ) extends TraceEvent {
+    def eventType: String = "rag_operation_completed"
+    def toJson: ujson.Value = {
+      val base = ujson.Obj(
+        "event_type"  -> eventType,
+        "timestamp"   -> timestamp.toString,
+        "operation"   -> operation,
+        "duration_ms" -> durationMs
+      )
+      embeddingTokens.foreach(t => base("embedding_tokens") = t)
+      llmPromptTokens.foreach(t => base("llm_prompt_tokens") = t)
+      llmCompletionTokens.foreach(t => base("llm_completion_tokens") = t)
+      totalCostUsd.foreach(c => base("total_cost_usd") = c)
+      base
+    }
   }
 
   def createTraceEvent(

@@ -106,6 +106,40 @@ class EnhancedConsoleTracing extends EnhancedTracing {
           println(s"${YELLOW}Name: ${e.name}$RESET")
           println(s"${YELLOW}Data: ${e.data}$RESET")
           println()
+
+        case e: TraceEvent.EmbeddingUsageRecorded =>
+          println()
+          printSubHeader("EMBEDDING USAGE", MAGENTA)
+          println(s"${GRAY}Timestamp: ${e.timestamp}$RESET")
+          println(s"${MAGENTA}Model: ${e.model}$RESET")
+          println(s"${MAGENTA}Operation: ${e.operation}$RESET")
+          println(s"${MAGENTA}Input Count: ${e.inputCount}$RESET")
+          println(s"${MAGENTA}Prompt Tokens: ${e.usage.promptTokens}$RESET")
+          println(s"${MAGENTA}Total Tokens: ${e.usage.totalTokens}$RESET")
+          println()
+
+        case e: TraceEvent.CostRecorded =>
+          println()
+          printSubHeader("COST RECORDED", YELLOW)
+          println(s"${GRAY}Timestamp: ${e.timestamp}$RESET")
+          println(s"${YELLOW}Model: ${e.model}$RESET")
+          println(s"${YELLOW}Operation: ${e.operation}$RESET")
+          println(s"${YELLOW}Token Count: ${e.tokenCount}$RESET")
+          println(s"${YELLOW}Cost Type: ${e.costType}$RESET")
+          println(s"${YELLOW}Cost (USD): $$${f"${e.costUsd}%.6f"}$RESET")
+          println()
+
+        case e: TraceEvent.RAGOperationCompleted =>
+          println()
+          printSubHeader("RAG OPERATION COMPLETED", CYAN)
+          println(s"${GRAY}Timestamp: ${e.timestamp}$RESET")
+          println(s"${CYAN}Operation: ${e.operation}$RESET")
+          println(s"${CYAN}Duration: ${e.durationMs}ms$RESET")
+          e.embeddingTokens.foreach(t => println(s"${CYAN}Embedding Tokens: $t$RESET"))
+          e.llmPromptTokens.foreach(t => println(s"${CYAN}LLM Prompt Tokens: $t$RESET"))
+          e.llmCompletionTokens.foreach(t => println(s"${CYAN}LLM Completion Tokens: $t$RESET"))
+          e.totalCostUsd.foreach(c => println(s"${CYAN}Total Cost (USD): $$${f"$c%.6f"}$RESET"))
+          println()
       }
     }.toEither.left.map(error => UnknownError(error.getMessage, error))
 
