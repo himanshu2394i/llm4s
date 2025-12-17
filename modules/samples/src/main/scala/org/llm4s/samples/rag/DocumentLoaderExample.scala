@@ -139,5 +139,28 @@ object DocumentLoaderExample extends App {
   println(s"    Lenient: failFast=${lenientConfig.failFast}, skipEmpty=${lenientConfig.skipEmptyDocuments}")
   println(s"    HighPerf: parallelism=${highPerfConfig.parallelism}, batchSize=${highPerfConfig.batchSize}")
 
+  // ========== 11. Async Operations ==========
+  println("\n11. Async/parallel operations...")
+  println("    RAG supports async operations for parallel document processing:")
+  println("")
+  println("    // Async ingest with parallel processing")
+  println("    import scala.concurrent.ExecutionContext.Implicits.global")
+  println("    import scala.concurrent.Await")
+  println("    import scala.concurrent.duration._")
+  println("")
+  println("    val futureStats = rag.ingestAsync(DirectoryLoader(\"./large-docs\"))")
+  println("    val stats = Await.result(futureStats, 5.minutes)")
+  println("")
+  println("    // Async sync for parallel change detection")
+  println("    val futureSyncStats = rag.syncAsync(DirectoryLoader(\"./docs\"))")
+  println("")
+  println("    // Async refresh")
+  println("    val futureRefreshStats = rag.refreshAsync(DirectoryLoader(\"./docs\"))")
+  println("")
+  println("    // Configure parallelism via LoadingConfig")
+  println("    val customConfig = LoadingConfig.default")
+  println("      .withParallelism(16)    // Up to 16 concurrent operations")
+  println("      .withBatchSize(50)      // Process 50 documents per batch")
+
   println("\n=== Example Complete ===")
 }

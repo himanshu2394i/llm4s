@@ -15,6 +15,7 @@ import org.llm4s.vectorstore._
 
 import java.io.{ Closeable, File }
 import java.nio.file.Path
+import scala.concurrent.{ ExecutionContext, Future }
 
 /**
  * High-level RAG (Retrieval-Augmented Generation) pipeline.
@@ -334,6 +335,209 @@ final class RAG private (
       case _                                                                => false
     }
   }
+
+  // ========== Async Document Loader API ==========
+
+  /**
+   * Async version of ingest with parallel document processing.
+   *
+   * Processes documents in batches with configurable parallelism.
+   * Uses the parallelism and batchSize settings from LoadingConfig.
+   *
+   * @param loader The document loader to ingest from
+   * @param ec Execution context for async operations
+   * @return Future with loading statistics
+   */
+  def ingestAsync(loader: DocumentLoader)(implicit ec: ExecutionContext): Future[Result[LoadStats]] = {
+    // Collect all results to enable parallel processing
+    val results   = loader.load().toSeq
+    val batchSize = config.loadingConfig.batchSize
+
+    // Process each result asynchronously
+    val futureOutcomes: Seq[Future[(String, Option[(String, org.llm4s.error.LLMError)])]] =
+      results.map { result =>
+        Future {
+          result match {
+            case LoadResult.Success(doc) =>
+              if (config.loadingConfig.skipEmptyDocuments && doc.content.trim.isEmpty) {
+                ("skipped", None)
+              } else {
+                ingestDocument(doc) match {
+                  case Right(_)    => ("success", None)
+                  case Left(error) => ("failed", Some((doc.id, error)))
+                }
+              }
+            case LoadResult.Failure(source, error, _) =>
+              ("failed", Some((source, error)))
+            case LoadResult.Skipped(_, _) =>
+              ("skipped", None)
+          }
+        }
+      }
+
+    // Process in batches to control parallelism
+    val batches = futureOutcomes.grouped(batchSize).toSeq
+
+    // Aggregate batch results sequentially
+    batches
+      .foldLeft(Future.successful((0, 0, 0, Seq.empty[(String, org.llm4s.error.LLMError)]))) {
+        case (accFuture, batchFutures) =>
+          for {
+            (successful, failed, skipped, errors) <- accFuture
+            batchResults                          <- Future.sequence(batchFutures)
+          } yield {
+            var s = successful
+            var f = failed
+            var k = skipped
+            var e = errors
+
+            batchResults.foreach {
+              case ("success", _)             => s += 1
+              case ("failed", Some(errTuple)) => f += 1; e = e :+ errTuple
+              case ("skipped", _)             => k += 1
+              case _                          => ()
+            }
+
+            (s, f, k, e)
+          }
+      }
+      .map { case (successful, failed, skipped, errors) =>
+        if (config.loadingConfig.failFast && errors.nonEmpty) {
+          Left(errors.head._2)
+        } else {
+          Right(
+            LoadStats(
+              results.size,
+              successful,
+              failed,
+              skipped,
+              errors
+            )
+          )
+        }
+      }
+  }
+
+  /**
+   * Async sync with parallel change detection.
+   *
+   * Performs change detection in parallel, but applies updates sequentially
+   * to avoid conflicts in the vector store.
+   *
+   * @param loader The document loader to sync with
+   * @param ec Execution context for async operations
+   * @return Future with sync statistics
+   */
+  def syncAsync(loader: DocumentLoader)(implicit ec: ExecutionContext): Future[Result[SyncStats]] = {
+    // Collect all successful documents
+    val docs      = loader.load().collect { case LoadResult.Success(d) => d }.toSeq
+    val batchSize = config.loadingConfig.batchSize
+
+    // Get registered IDs for deletion detection
+    val registeredIds = registry.allDocumentIds().getOrElse(Set.empty)
+
+    // Sealed trait for change detection results
+    sealed trait ChangeType
+    case object NewDoc       extends ChangeType
+    case object UpdatedDoc   extends ChangeType
+    case object UnchangedDoc extends ChangeType
+    case class ProcessDoc(doc: Document, change: ChangeType)
+
+    // Parallel change detection using Futures
+    val changeDetectionFutures: Seq[Future[Option[ProcessDoc]]] = docs.map { doc =>
+      Future {
+        if (config.loadingConfig.skipEmptyDocuments && doc.content.trim.isEmpty) {
+          None
+        } else {
+          val docVersion = doc.version.getOrElse(DocumentVersion.fromContent(doc.content))
+          registry.getVersion(doc.id) match {
+            case Right(None) =>
+              Some(ProcessDoc(doc, NewDoc))
+            case Right(Some(existing)) if existing.contentHash != docVersion.contentHash =>
+              Some(ProcessDoc(doc, UpdatedDoc))
+            case Right(Some(_)) =>
+              Some(ProcessDoc(doc, UnchangedDoc))
+            case Left(_) =>
+              None
+          }
+        }
+      }
+    }
+
+    // Process change detection in batches
+    val batches = changeDetectionFutures.grouped(batchSize).toSeq
+
+    batches
+      .foldLeft(Future.successful(Seq.empty[ProcessDoc])) { case (accFuture, batchFutures) =>
+        for {
+          acc          <- accFuture
+          batchResults <- Future.sequence(batchFutures)
+        } yield acc ++ batchResults.flatten
+      }
+      .map { changeResults =>
+        // Apply changes sequentially to avoid conflicts
+        var added     = 0
+        var updated   = 0
+        var unchanged = 0
+        val seenIds   = scala.collection.mutable.Set[String]()
+
+        changeResults.foreach {
+          case ProcessDoc(doc, NewDoc) =>
+            seenIds += doc.id
+            val docVersion = doc.version.getOrElse(DocumentVersion.fromContent(doc.content))
+            ingestDocument(doc) match {
+              case Right(_) =>
+                registry.register(doc.id, docVersion)
+                added += 1
+              case Left(_) => // Failed to ingest - skip
+            }
+
+          case ProcessDoc(doc, UpdatedDoc) =>
+            seenIds += doc.id
+            val docVersion = doc.version.getOrElse(DocumentVersion.fromContent(doc.content))
+            deleteDocumentChunks(doc.id)
+            ingestDocument(doc) match {
+              case Right(_) =>
+                registry.register(doc.id, docVersion)
+                updated += 1
+              case Left(_) => // Failed to ingest - skip
+            }
+
+          case ProcessDoc(doc, UnchangedDoc) =>
+            seenIds += doc.id
+            unchanged += 1
+        }
+
+        // Handle deletions
+        val deletedIds = registeredIds -- seenIds
+        var deleted    = 0
+        deletedIds.foreach { id =>
+          deleteDocumentChunks(id)
+          registry.unregister(id)
+          deleted += 1
+        }
+
+        Right(SyncStats(added, updated, deleted, unchanged))
+      }
+  }
+
+  /**
+   * Async full refresh.
+   *
+   * Clears all data and re-ingests from the loader with parallel processing.
+   *
+   * @param loader The document loader to refresh from
+   * @param ec Execution context for async operations
+   * @return Future with sync statistics
+   */
+  def refreshAsync(loader: DocumentLoader)(implicit ec: ExecutionContext): Future[Result[SyncStats]] =
+    Future {
+      for {
+        _     <- registry.clear()
+        _     <- clear()
+        stats <- ingest(loader)
+      } yield SyncStats(added = stats.successful, updated = 0, deleted = 0, unchanged = 0)
+    }
 
   private def ingestDocument(doc: Document): Result[Int] = {
     // Choose chunker based on hints if configured
