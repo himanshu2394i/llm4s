@@ -8,6 +8,7 @@ import org.llm4s.llmconnect.config.{ EmbeddingModelConfig, EmbeddingProviderConf
 import org.llm4s.llmconnect.extractors.UniversalExtractor
 import org.llm4s.llmconnect.model._
 import org.llm4s.rag.loader._
+import org.llm4s.rag.loader.{ PgDocumentRegistry, QdrantDocumentRegistry, SQLiteDocumentRegistry }
 import org.llm4s.reranker.{ Reranker, RerankerFactory }
 import org.llm4s.trace.EnhancedTracing
 import org.llm4s.types.Result
@@ -885,10 +886,25 @@ object RAG {
         }
     } yield rag
 
-  private def createRegistry(@scala.annotation.unused config: RAGConfig): Result[DocumentRegistry] =
-    // For now, use in-memory registry
-    // Future: SQLite registry when vectorStorePath is set
-    Right(InMemoryDocumentRegistry())
+  private def createRegistry(config: RAGConfig): Result[DocumentRegistry] =
+    // Auto-select registry based on vector store configuration
+    (config.vectorStorePath, config.pgVectorConfig, config.qdrantConfig) match {
+      case (Some(dbPath), _, _) =>
+        // SQLite vector store -> SQLite document registry
+        SQLiteDocumentRegistry.forVectorStore(dbPath)
+
+      case (_, Some(pgConfig), _) =>
+        // PgVector store -> PostgreSQL document registry
+        PgDocumentRegistry.forVectorStore(pgConfig)
+
+      case (_, _, Some(qdrantConfig)) =>
+        // Qdrant store -> Qdrant document registry
+        QdrantDocumentRegistry.forVectorStore(qdrantConfig)
+
+      case _ =>
+        // In-memory vector store -> In-memory document registry
+        Right(InMemoryDocumentRegistry())
+    }
 
   /**
    * Extension method to build from config.
@@ -938,11 +954,30 @@ object RAG {
     }
 
   private def createHybridSearcher(config: RAGConfig): Result[HybridSearcher] =
-    (config.vectorStorePath, config.keywordIndexPath) match {
-      case (Some(vectorPath), Some(keywordPath)) =>
+    (config.vectorStorePath, config.keywordIndexPath, config.pgVectorConfig, config.qdrantConfig) match {
+      // SQLite storage
+      case (Some(vectorPath), Some(keywordPath), _, _) =>
         HybridSearcher.sqlite(vectorPath, keywordPath)
-      case (Some(vectorPath), None) =>
+      case (Some(vectorPath), None, _, _) =>
         HybridSearcher.sqlite(vectorPath, vectorPath.replace(".db", "-fts.db"))
+
+      // PgVector storage
+      case (_, _, Some(pgConfig), _) =>
+        for {
+          vectorStore <- PgVectorStore(pgConfig)
+          // Use in-memory keyword index (can be enhanced to use Postgres FTS later)
+          keywordIndex <- KeywordIndex.inMemory()
+        } yield HybridSearcher(vectorStore, keywordIndex)
+
+      // Qdrant storage
+      case (_, _, _, Some(qdrantConfig)) =>
+        for {
+          vectorStore <- QdrantVectorStore(qdrantConfig)
+          // Use in-memory keyword index (Qdrant handles vector search)
+          keywordIndex <- KeywordIndex.inMemory()
+        } yield HybridSearcher(vectorStore, keywordIndex)
+
+      // In-memory (default)
       case _ =>
         HybridSearcher.inMemory()
     }
