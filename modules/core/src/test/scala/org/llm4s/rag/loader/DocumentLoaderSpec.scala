@@ -275,6 +275,130 @@ class DocumentLoaderSpec extends AnyFlatSpec with Matchers {
     registry.allDocumentIds() shouldBe Right(Set.empty)
   }
 
+  // ========== SQLiteDocumentRegistry Tests ==========
+
+  "SQLiteDocumentRegistry" should "create in-memory registry" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    registryResult shouldBe a[Right[_, _]]
+
+    val registry = registryResult.toOption.get
+    try
+      registry.count() shouldBe Right(0)
+    finally
+      registry.close()
+  }
+
+  it should "register and retrieve versions" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+    val version        = DocumentVersion.fromContent("test content")
+
+    try {
+      registry.register("doc-1", version) shouldBe Right(())
+      registry.getVersion("doc-1") shouldBe Right(Some(version))
+      registry.contains("doc-1") shouldBe Right(true)
+      registry.contains("doc-2") shouldBe Right(false)
+    } finally
+      registry.close()
+  }
+
+  it should "return None for unknown documents" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+
+    try
+      registry.getVersion("unknown") shouldBe Right(None)
+    finally
+      registry.close()
+  }
+
+  it should "unregister documents" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+    val version        = DocumentVersion.fromContent("test")
+
+    try {
+      registry.register("doc-1", version)
+      registry.unregister("doc-1") shouldBe Right(())
+      registry.getVersion("doc-1") shouldBe Right(None)
+    } finally
+      registry.close()
+  }
+
+  it should "list all document IDs" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+
+    try {
+      registry.register("doc-1", DocumentVersion.fromContent("c1"))
+      registry.register("doc-2", DocumentVersion.fromContent("c2"))
+
+      registry.allDocumentIds() shouldBe Right(Set("doc-1", "doc-2"))
+    } finally
+      registry.close()
+  }
+
+  it should "clear all registrations" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+
+    try {
+      registry.register("doc-1", DocumentVersion.fromContent("c1"))
+      registry.clear() shouldBe Right(())
+      registry.allDocumentIds() shouldBe Right(Set.empty)
+      registry.count() shouldBe Right(0)
+    } finally
+      registry.close()
+  }
+
+  it should "count registered documents" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+
+    try {
+      registry.count() shouldBe Right(0)
+      registry.register("doc-1", DocumentVersion.fromContent("c1"))
+      registry.count() shouldBe Right(1)
+      registry.register("doc-2", DocumentVersion.fromContent("c2"))
+      registry.count() shouldBe Right(2)
+    } finally
+      registry.close()
+  }
+
+  it should "update existing document version" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+    val version1       = DocumentVersion.fromContent("content v1")
+    val version2       = DocumentVersion.fromContent("content v2")
+
+    try {
+      registry.register("doc-1", version1)
+      registry.register("doc-1", version2)
+      registry.getVersion("doc-1") shouldBe Right(Some(version2))
+      registry.count() shouldBe Right(1) // Should not duplicate
+    } finally
+      registry.close()
+  }
+
+  it should "store and retrieve timestamp and etag" in {
+    val registryResult = SQLiteDocumentRegistry.inMemory()
+    val registry       = registryResult.toOption.get
+    val version = DocumentVersion(
+      contentHash = "abc123",
+      timestamp = Some(1234567890L),
+      etag = Some("etag-value")
+    )
+
+    try {
+      registry.register("doc-1", version)
+      val retrieved = registry.getVersion("doc-1")
+      retrieved shouldBe Right(Some(version))
+      retrieved.toOption.flatten.flatMap(_.timestamp) shouldBe Some(1234567890L)
+      retrieved.toOption.flatten.flatMap(_.etag) shouldBe Some("etag-value")
+    } finally
+      registry.close()
+  }
+
   // ========== LoadingConfig Tests ==========
 
   "LoadingConfig" should "have sensible defaults" in {

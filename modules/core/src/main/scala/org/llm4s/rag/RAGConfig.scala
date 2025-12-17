@@ -4,7 +4,7 @@ import org.llm4s.chunking.{ ChunkerFactory, ChunkingConfig }
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.rag.loader.{ DirectoryLoader, DocumentLoader, LoadingConfig }
 import org.llm4s.trace.EnhancedTracing
-import org.llm4s.vectorstore.FusionStrategy
+import org.llm4s.vectorstore.{ FusionStrategy, PgVectorStore, QdrantVectorStore }
 
 /**
  * Configuration for RAG pipeline.
@@ -44,6 +44,8 @@ final case class RAGConfig(
   // Storage settings
   vectorStorePath: Option[String] = None,
   keywordIndexPath: Option[String] = None,
+  pgVectorConfig: Option[PgVectorStore.Config] = None,
+  qdrantConfig: Option[QdrantVectorStore.Config] = None,
   // Answer generation
   llmClient: Option[LLMClient] = None,
   systemPrompt: Option[String] = None,
@@ -139,12 +141,53 @@ final case class RAGConfig(
   def withSQLite(dbPath: String): RAGConfig =
     copy(
       vectorStorePath = Some(dbPath),
-      keywordIndexPath = Some(dbPath.replace(".db", "-fts.db"))
+      keywordIndexPath = Some(dbPath.replace(".db", "-fts.db")),
+      pgVectorConfig = None,
+      qdrantConfig = None
     )
 
   /** Use in-memory storage (default) */
   def inMemory: RAGConfig =
-    copy(vectorStorePath = None, keywordIndexPath = None)
+    copy(vectorStorePath = None, keywordIndexPath = None, pgVectorConfig = None, qdrantConfig = None)
+
+  /** Use PostgreSQL with pgvector for persistent storage */
+  def withPgVector(config: PgVectorStore.Config): RAGConfig =
+    copy(
+      vectorStorePath = None,
+      keywordIndexPath = None,
+      pgVectorConfig = Some(config),
+      qdrantConfig = None
+    )
+
+  /** Use PostgreSQL with pgvector (convenience method with host/port/database) */
+  def withPgVector(
+    host: String = "localhost",
+    port: Int = 5432,
+    database: String = "postgres",
+    user: String = "postgres",
+    password: String = "",
+    tableName: String = "vectors"
+  ): RAGConfig =
+    withPgVector(PgVectorStore.Config(host, port, database, user, password, tableName))
+
+  /** Use Qdrant for persistent storage */
+  def withQdrant(config: QdrantVectorStore.Config): RAGConfig =
+    copy(
+      vectorStorePath = None,
+      keywordIndexPath = None,
+      pgVectorConfig = None,
+      qdrantConfig = Some(config)
+    )
+
+  /** Use Qdrant (convenience method with host/port) */
+  def withQdrant(
+    host: String = "localhost",
+    port: Int = 6333,
+    collectionName: String = "vectors",
+    apiKey: Option[String] = None,
+    https: Boolean = false
+  ): RAGConfig =
+    withQdrant(QdrantVectorStore.Config(host, port, collectionName, apiKey, https))
 
   // ========== Answer Generation Configuration ==========
 
