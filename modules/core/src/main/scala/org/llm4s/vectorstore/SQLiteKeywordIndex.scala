@@ -208,6 +208,15 @@ final class SQLiteKeywordIndex private (
         stmt.close()
       }
 
+  override def deleteByPrefix(prefix: String): Result[Long] =
+    Try {
+      val stmt = connection.prepareStatement(s"DELETE FROM $tableName WHERE id LIKE ?")
+      stmt.setString(1, prefix + "%")
+      val deleted = stmt.executeUpdate().toLong
+      stmt.close()
+      deleted
+    }.toEither.left.map(e => ProcessingError("keyword-index", s"Delete by prefix failed: ${e.getMessage}"))
+
   override def count(): Result[Long] =
     Try {
       val stmt = connection.createStatement()

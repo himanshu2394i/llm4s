@@ -251,6 +251,42 @@ final class SQLiteVectorStore private (
       }.toEither.left.map(e => ProcessingError("sqlite-vector-store", s"Failed to delete batch: ${e.getMessage}"))
     }
 
+  override def deleteByPrefix(prefix: String): Result[Long] =
+    Try {
+      // First get IDs to delete
+      val ids = Using.resource(connection.prepareStatement("SELECT id FROM vectors WHERE id LIKE ?")) { stmt =>
+        stmt.setString(1, prefix + "%")
+        Using.resource(stmt.executeQuery()) { rs =>
+          val buffer = ArrayBuffer.empty[String]
+          while (rs.next())
+            buffer += rs.getString("id")
+          buffer.toSeq
+        }
+      }
+
+      if (ids.isEmpty) {
+        0L
+      } else {
+        val placeholders = ids.map(_ => "?").mkString(",")
+
+        // Delete from FTS
+        Using.resource(connection.prepareStatement(s"DELETE FROM vectors_fts WHERE id IN ($placeholders)")) { stmt =>
+          ids.zipWithIndex.foreach { case (id, idx) =>
+            stmt.setString(idx + 1, id)
+          }
+          stmt.executeUpdate()
+        }
+
+        // Delete from main table
+        Using.resource(connection.prepareStatement(s"DELETE FROM vectors WHERE id IN ($placeholders)")) { stmt =>
+          ids.zipWithIndex.foreach { case (id, idx) =>
+            stmt.setString(idx + 1, id)
+          }
+          stmt.executeUpdate().toLong
+        }
+      }
+    }.toEither.left.map(e => ProcessingError("sqlite-vector-store", s"Failed to delete by prefix: ${e.getMessage}"))
+
   override def deleteByFilter(filter: MetadataFilter): Result[Long] =
     Try {
       val (whereClause, params) = filterToSql(filter)

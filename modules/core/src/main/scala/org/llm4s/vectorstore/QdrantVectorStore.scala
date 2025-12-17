@@ -170,6 +170,47 @@ final class QdrantVectorStore private (
         .map(e => ProcessingError("qdrant-store", s"Failed to delete: ${e.getMessage}"))
         .flatMap(identity)
 
+  override def deleteByPrefix(prefix: String): Result[Long] =
+    // Qdrant doesn't support prefix-based deletion directly
+    // We need to scroll through all records and filter by ID prefix
+    Try {
+      var deleted                = 0L
+      var offset: Option[String] = None
+      var hasMore                = true
+
+      while (hasMore) {
+        val body = ujson.Obj("limit" -> 100, "with_payload" -> false, "with_vector" -> false)
+        offset.foreach(o => body("offset") = o)
+
+        val result = httpPost(s"$pointsUrl/scroll", body)
+        result match {
+          case Right(response) =>
+            val points = response("result")("points").arr
+            if (points.isEmpty) {
+              hasMore = false
+            } else {
+              val matchingIds = points.flatMap { p =>
+                val id = p("id").str
+                if (id.startsWith(prefix)) Some(id) else None
+              }.toSeq
+
+              if (matchingIds.nonEmpty) {
+                val deleteBody = ujson.Obj("points" -> ujson.Arr(matchingIds.map(ujson.Str(_)): _*))
+                httpPost(s"$pointsUrl/delete?wait=true", deleteBody)
+                deleted += matchingIds.size
+              }
+
+              offset = response("result").obj.get("next_page_offset").map(_.str)
+              hasMore = offset.isDefined
+            }
+          case Left(_) =>
+            hasMore = false
+        }
+      }
+      deleted
+    }.toEither.left
+      .map(e => ProcessingError("qdrant-store", s"Failed to delete by prefix: ${e.getMessage}"))
+
   override def deleteByFilter(filter: MetadataFilter): Result[Long] =
     Try {
       // First count matching records

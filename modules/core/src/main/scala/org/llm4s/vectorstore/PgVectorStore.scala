@@ -274,6 +274,16 @@ final class PgVectorStore private (
         }
       }.toEither.left.map(e => ProcessingError("pgvector-store", s"Failed to delete batch: ${e.getMessage}"))
 
+  override def deleteByPrefix(prefix: String): Result[Long] =
+    Try {
+      withConnection { conn =>
+        Using.resource(conn.prepareStatement(s"DELETE FROM $tableName WHERE id LIKE ?")) { stmt =>
+          stmt.setString(1, prefix + "%")
+          stmt.executeUpdate().toLong
+        }
+      }
+    }.toEither.left.map(e => ProcessingError("pgvector-store", s"Failed to delete by prefix: ${e.getMessage}"))
+
   override def deleteByFilter(filter: MetadataFilter): Result[Long] =
     Try {
       withConnection { conn =>

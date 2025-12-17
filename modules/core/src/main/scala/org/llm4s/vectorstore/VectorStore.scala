@@ -88,6 +88,14 @@ trait VectorStore {
   def deleteBatch(ids: Seq[String]): Result[Unit]
 
   /**
+   * Delete all records with IDs starting with the given prefix.
+   *
+   * @param prefix The ID prefix to match
+   * @return Number of records deleted
+   */
+  def deleteByPrefix(prefix: String): Result[Long]
+
+  /**
    * Delete all records matching a metadata filter.
    *
    * @param filter The metadata filter

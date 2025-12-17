@@ -119,6 +119,14 @@ trait KeywordIndex {
   def deleteBatch(ids: Seq[String]): Result[Unit]
 
   /**
+   * Delete all documents with IDs starting with the given prefix.
+   *
+   * @param prefix The ID prefix to match
+   * @return Number of documents deleted
+   */
+  def deleteByPrefix(prefix: String): Result[Long]
+
+  /**
    * Update a document (re-index with new content).
    *
    * @param doc Updated document
