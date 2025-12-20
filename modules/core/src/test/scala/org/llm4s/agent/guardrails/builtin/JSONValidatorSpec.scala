@@ -44,5 +44,21 @@ class JSONValidatorSpec extends AnyFunSuite with Matchers {
 
     val result = validator.validate("""["not", "an", "object"]""")
     result.isLeft shouldBe true
+
+    val message = result.left.toOption.map(_.formatted).getOrElse("")
+    message should include("Schema requires an object")
+    message should include("non-object value")
+  }
+
+  test("empty required array passes any object") {
+    val schema    = Obj("required" -> ujson.Arr())
+    val validator = JSONValidator.withSchema(schema)
+    validator.validate("""{}""").isRight shouldBe true
+  }
+
+  test("schema without required field passes any valid JSON") {
+    val schema    = Obj("type" -> "object")
+    val validator = JSONValidator.withSchema(schema)
+    validator.validate("""{"anything": "goes"}""").isRight shouldBe true
   }
 }

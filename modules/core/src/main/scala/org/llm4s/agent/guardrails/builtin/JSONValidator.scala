@@ -2,7 +2,7 @@ package org.llm4s.agent.guardrails.builtin
 
 import org.llm4s.agent.guardrails.OutputGuardrail
 import org.llm4s.error.ValidationError
-import org.llm4s.types.{ Result, TryOps }
+import org.llm4s.types.Result
 
 import scala.util.{ Failure, Success, Try }
 
@@ -33,52 +33,43 @@ class JSONValidator(schema: Option[ujson.Value] = None) extends OutputGuardrail 
           case None => Right(value)
 
           case Some(sch) =>
-            validateRequiredFields(parsedJson, sch) match {
-              case Nil => Right(value)
-              case missing =>
-                Left(
-                  ValidationError.invalid(
-                    "output",
-                    s"Missing required JSON fields: ${missing.mkString(", ")}"
-                  )
-                )
+            validateAgainstSchema(parsedJson, sch) match {
+              case None        => Right(value)
+              case Some(error) => Left(ValidationError.invalid("output", error))
             }
         }
     }
 
   /**
-   * Validates that all required fields exist according to:
-   *   { "required": ["field1", "field2"] }
-   *
-   * Returns: list of missing field names.
+   * Validates JSON against schema, returning an error message if validation fails.
    */
-  private def validateRequiredFields(json: ujson.Value, schema: ujson.Value): List[String] = {
-
-    // Extract “required” keys without try/catch
-    val requiredKeys: List[String] =
-      Try {
-        schema.obj.get("required") match {
-          case Some(ujson.Arr(items)) =>
-            items.collect { case ujson.Str(s) => s }.toList
-          case _ =>
-            List.empty
-        }
-      }.toResult
-        .fold(_ => List.empty, identity)
+  private def validateAgainstSchema(json: ujson.Value, schema: ujson.Value): Option[String] = {
+    val requiredKeys = extractRequiredKeys(schema)
 
     if (requiredKeys.isEmpty) {
-      List.empty
+      None
     } else {
       json match {
         case obj: ujson.Obj =>
-          requiredKeys.filterNot(obj.obj.contains)
+          val missing = requiredKeys.filterNot(obj.obj.contains)
+          if (missing.isEmpty) None
+          else Some(s"Missing required JSON fields: ${missing.mkString(", ")}")
 
         case _ =>
-          // Schema expects object, but JSON root is not an object
-          List("root object")
+          Some(s"Schema requires an object with fields [${requiredKeys.mkString(", ")}], but got a non-object value")
       }
     }
   }
+
+  /**
+   * Extracts the list of required field names from a JSON schema.
+   * Looks for: { "required": ["field1", "field2"] }
+   */
+  private def extractRequiredKeys(schema: ujson.Value): List[String] =
+    Try(schema.obj).toOption
+      .flatMap(_.get("required"))
+      .collect { case ujson.Arr(items) => items.collect { case ujson.Str(s) => s }.toList }
+      .getOrElse(List.empty)
 
   val name: String = "JSONValidator"
 
