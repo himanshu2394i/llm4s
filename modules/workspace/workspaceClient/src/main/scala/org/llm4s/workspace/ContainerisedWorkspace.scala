@@ -37,6 +37,8 @@ class ContainerisedWorkspace(
   private val HeartbeatIntervalSeconds = 5
   private val MaxStartupAttempts       = 10
   private val ConnectionTimeoutMs      = 10000L
+  private val DefaultCommandTimeoutSec = 30
+  private val ResponseTimeoutBufferSec = 5
 
   // State tracking
   private val containerRunning                            = new AtomicBoolean(false)
@@ -353,7 +355,7 @@ class ContainerisedWorkspace(
         client.send(json)
         logger.debug(s"Sent command: ${command.getClass.getSimpleName} with ID: ${command.commandId}")
       }
-      response <- Try(future.get(30, TimeUnit.SECONDS)).toEither.left.map(_.getMessage)
+      response <- Try(future.get(responseTimeoutSeconds(command), TimeUnit.SECONDS)).toEither.left.map(_.getMessage)
       finalResp <- response match {
         case error: WorkspaceAgentErrorResponse => Left(s"${error.code}: ${error.error}")
         case ok                                 => Right(ok)
@@ -368,6 +370,15 @@ class ContainerisedWorkspace(
       ok => ok
     )
   }
+
+  private def responseTimeoutSeconds(command: WorkspaceAgentCommand): Long =
+    command match {
+      case exec: ExecuteCommandCommand =>
+        val commandTimeoutSec = exec.timeout.getOrElse(DefaultCommandTimeoutSec)
+        (commandTimeoutSec + ResponseTimeoutBufferSec).toLong
+      case _ =>
+        (DefaultCommandTimeoutSec + ResponseTimeoutBufferSec).toLong
+    }
 
   // WorkspaceAgentInterface implementation
   override def exploreFiles(

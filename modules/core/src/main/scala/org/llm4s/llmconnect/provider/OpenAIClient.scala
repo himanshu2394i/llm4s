@@ -111,14 +111,28 @@ class OpenAIClient private (
           val attempt = Try(client.getChatCompletions(model, chatOptions)).toEither.left.map(e => e.toLLMError)
           attempt.flatMap { completions =>
             val completion = convertFromOpenAIFormat(completions)
-            // Emit a single chunk with the full content
-            val chunk = StreamedChunk(
-              id = completion.id,
-              content = Some(completion.content),
-              toolCall = completion.toolCalls.headOption,
-              finishReason = Some("stop")
-            )
-            onChunk(chunk)
+            val contentOpt = if (completion.content.nonEmpty) Some(completion.content) else None
+            completion.toolCalls.headOption match {
+              case Some(first) =>
+                val chunk = StreamedChunk(
+                  id = completion.id,
+                  content = contentOpt,
+                  toolCall = Some(first),
+                  finishReason = Some("stop")
+                )
+                onChunk(chunk)
+                completion.toolCalls.drop(1).foreach { tc =>
+                  onChunk(StreamedChunk(id = completion.id, content = None, toolCall = Some(tc), finishReason = None))
+                }
+              case None =>
+                val chunk = StreamedChunk(
+                  id = completion.id,
+                  content = contentOpt,
+                  toolCall = None,
+                  finishReason = Some("stop")
+                )
+                onChunk(chunk)
+            }
             Right(completion)
           }
         } else {
@@ -131,19 +145,40 @@ class OpenAIClient private (
                 val choice = chatCompletions.getChoices.get(0)
                 val delta  = choice.getDelta
 
-                // Create StreamedChunk from delta
-                val chunk = StreamedChunk(
-                  id = Option(chatCompletions.getId).getOrElse(""),
-                  content = Option(delta.getContent),
-                  toolCall = extractStreamingToolCall(delta),
-                  finishReason = Option(choice.getFinishReason).map(_.toString)
-                )
+                val toolCalls    = extractStreamingToolCalls(delta)
+                val contentOpt   = Option(delta.getContent)
+                val finishReason = Option(choice.getFinishReason).map(_.toString)
+                val chunkId      = Option(chatCompletions.getId).getOrElse("")
 
-                // Add to accumulator
-                accumulator.addChunk(chunk)
-
-                // Call the callback
-                onChunk(chunk)
+                if (toolCalls.isEmpty) {
+                  val chunk = StreamedChunk(
+                    id = chunkId,
+                    content = contentOpt,
+                    toolCall = None,
+                    finishReason = finishReason
+                  )
+                  accumulator.addChunk(chunk)
+                  onChunk(chunk)
+                } else {
+                  val firstChunk = StreamedChunk(
+                    id = chunkId,
+                    content = contentOpt,
+                    toolCall = Some(toolCalls.head),
+                    finishReason = finishReason
+                  )
+                  accumulator.addChunk(firstChunk)
+                  onChunk(firstChunk)
+                  toolCalls.drop(1).foreach { tc =>
+                    val extra = StreamedChunk(
+                      id = chunkId,
+                      content = None,
+                      toolCall = Some(tc),
+                      finishReason = None
+                    )
+                    accumulator.addChunk(extra)
+                    onChunk(extra)
+                  }
+                }
 
                 // Check if streaming is complete
                 if (choice.getFinishReason != null) {
@@ -207,21 +242,23 @@ class OpenAIClient private (
    * @param delta streaming response message delta from OpenAI
    * @return Some(ToolCall) if a function tool call is present, None otherwise
    */
-  private def extractStreamingToolCall(delta: ChatResponseMessage): Option[ToolCall] =
-    for {
-      toolCalls <- Option(delta.getToolCalls)
-      tc        <- toolCalls.asScala.headOption
-      result <- Option(tc).collect { case ftc: ChatCompletionsFunctionToolCall =>
-        ToolCall(
-          id = ftc.getId,
-          name = Option(ftc.getFunction).map(_.getName).getOrElse(""),
-          arguments = Option(ftc.getFunction)
-            .flatMap(f => Option(f.getArguments))
-            .flatMap(args => Try(ujson.read(args)).toOption)
-            .getOrElse(ujson.Null)
-        )
-      }
-    } yield result
+  private def extractStreamingToolCalls(delta: ChatResponseMessage): Seq[ToolCall] =
+    Option(delta.getToolCalls)
+      .map(
+        _.asScala.toSeq.collect { case ftc: ChatCompletionsFunctionToolCall =>
+          val function = Option(ftc.getFunction)
+          val rawArgs  = function.flatMap(f => Option(f.getArguments)).getOrElse("")
+          ToolCall(
+            id = ftc.getId,
+            name = function.map(_.getName).getOrElse(""),
+            arguments = parseStreamingArguments(rawArgs)
+          )
+        }
+      )
+      .getOrElse(Seq.empty)
+
+  private def parseStreamingArguments(raw: String): ujson.Value =
+    if (raw.isEmpty) ujson.Null else Try(ujson.read(raw)).getOrElse(ujson.Str(raw))
 
   /**
    * Converts llm4s Conversation to OpenAI ChatRequestMessage format.

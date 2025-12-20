@@ -96,8 +96,8 @@ class OpenAIStreamingHandler extends BaseStreamingResponseHandler {
               if (data == "[DONE]") markComplete()
               else {
                 Try(ujson.read(data)).toOption.foreach { json =>
-                  val streamedChunk = parseOpenAIChunk(json)
-                  streamedChunk.foreach { c =>
+                  val streamedChunks = parseOpenAIChunks(json)
+                  streamedChunks.foreach { c =>
                     accumulator.addChunk(c)
                     latestChunk = Some(c)
                   }
@@ -115,7 +115,7 @@ class OpenAIStreamingHandler extends BaseStreamingResponseHandler {
         error
       }
 
-  private def parseOpenAIChunk(json: Value): Option[StreamedChunk] =
+  private def parseOpenAIChunks(json: Value): Seq[StreamedChunk] =
     Try {
       val choices = json("choices").arr
       if (choices.nonEmpty) {
@@ -125,23 +125,15 @@ class OpenAIStreamingHandler extends BaseStreamingResponseHandler {
         val content      = delta.obj.get("content").flatMap(_.strOpt)
         val finishReason = choice.obj.get("finish_reason").flatMap(_.strOpt)
 
-        // Handle tool calls if present
-        val toolCall = delta.obj.get("tool_calls").flatMap { toolCalls =>
-          val calls = toolCalls.arr
-          if (calls.nonEmpty) {
-            val call = calls(0)
-            Some(
-              ToolCall(
-                id = call.obj.get("id").flatMap(_.strOpt).getOrElse(""),
-                name = call.obj.get("function").flatMap(_("name").strOpt).getOrElse(""),
-                arguments = call.obj
-                  .get("function")
-                  .flatMap(_("arguments").strOpt)
-                  .map(args => ujson.read(args))
-                  .getOrElse(ujson.Null)
-              )
+        val toolCalls = delta.obj.get("tool_calls").map(_.arr).getOrElse(Seq.empty).collect {
+          case call if call.obj.contains("function") =>
+            val function = call("function")
+            val rawArgs  = function.obj.get("arguments").flatMap(_.strOpt).getOrElse("")
+            ToolCall(
+              id = call.obj.get("id").flatMap(_.strOpt).getOrElse(""),
+              name = function.obj.get("name").flatMap(_.strOpt).getOrElse(""),
+              arguments = parseStreamingArguments(rawArgs)
             )
-          } else None
         }
 
         // Mark complete if we have a finish reason
@@ -149,18 +141,40 @@ class OpenAIStreamingHandler extends BaseStreamingResponseHandler {
           markComplete()
         }
 
-        Some(
-          StreamedChunk(
-            id = json.obj.get("id").flatMap(_.strOpt).getOrElse(""),
+        val chunkId = json.obj.get("id").flatMap(_.strOpt).getOrElse("")
+        if (toolCalls.isEmpty) {
+          Seq(
+            StreamedChunk(
+              id = chunkId,
+              content = content,
+              toolCall = None,
+              finishReason = finishReason
+            )
+          )
+        } else {
+          val first = StreamedChunk(
+            id = chunkId,
             content = content,
-            toolCall = toolCall,
+            toolCall = Some(toolCalls.head),
             finishReason = finishReason
           )
-        )
+          val rest = toolCalls.drop(1).map { tc =>
+            StreamedChunk(
+              id = chunkId,
+              content = None,
+              toolCall = Some(tc),
+              finishReason = None
+            )
+          }
+          Seq(first) ++ rest
+        }
       } else {
-        None
+        Seq.empty
       }
-    }.toOption.flatten
+    }.getOrElse(Seq.empty)
+
+  private def parseStreamingArguments(raw: String): ujson.Value =
+    if (raw.isEmpty) ujson.Null else Try(ujson.read(raw)).getOrElse(ujson.Str(raw))
 }
 
 /**

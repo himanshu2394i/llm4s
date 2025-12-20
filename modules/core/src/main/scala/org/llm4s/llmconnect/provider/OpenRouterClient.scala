@@ -104,9 +104,9 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
               sseParser.nextEvent().foreach { event =>
                 event.data.foreach { data =>
                   if (data != "[DONE]") {
-                    val json  = ujson.read(data)
-                    val chunk = parseStreamingChunk(json)
-                    chunk.foreach { c =>
+                    val json   = ujson.read(data)
+                    val chunks = parseStreamingChunks(json)
+                    chunks.foreach { c =>
                       accumulator.addChunk(c)
                       onChunk(c)
                     }
@@ -123,7 +123,7 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
     attempt.flatMap(_ => accumulator.toCompletion)
   }
 
-  private def parseStreamingChunk(json: ujson.Value): Option[StreamedChunk] = {
+  private def parseStreamingChunks(json: ujson.Value): Seq[StreamedChunk] = {
     val choices = json("choices").arr
     if (choices.nonEmpty) {
       val choice = choices(0)
@@ -138,38 +138,54 @@ class OpenRouterClient(config: OpenAIConfig) extends LLMClient {
         .flatMap(_.strOpt)
         .orElse(delta.obj.get("reasoning").flatMap(_.strOpt))
 
-      // Handle tool calls if present
-      val toolCall = delta.obj.get("tool_calls").flatMap { toolCallsVal =>
-        val toolCalls = toolCallsVal.arr
-        if (toolCalls.nonEmpty) {
-          val call = toolCalls(0)
-          Some(
-            ToolCall(
-              id = call.obj.get("id").flatMap(_.strOpt).getOrElse(""),
-              name = call.obj.get("function").flatMap(_("name").strOpt).getOrElse(""),
-              arguments = call.obj
-                .get("function")
-                .flatMap(_("arguments").strOpt)
-                .map(args => ujson.read(args))
-                .getOrElse(ujson.Null)
-            )
+      val toolCalls = delta.obj.get("tool_calls").map(_.arr).getOrElse(Seq.empty).collect {
+        case call if call.obj.contains("function") =>
+          val function = call("function")
+          val rawArgs  = function.obj.get("arguments").flatMap(_.strOpt).getOrElse("")
+          ToolCall(
+            id = call.obj.get("id").flatMap(_.strOpt).getOrElse(""),
+            name = function.obj.get("name").flatMap(_.strOpt).getOrElse(""),
+            arguments = parseStreamingArguments(rawArgs)
           )
-        } else None
       }
 
-      Some(
-        StreamedChunk(
-          id = json.obj.get("id").flatMap(_.strOpt).getOrElse(""),
+      val chunkId = json.obj.get("id").flatMap(_.strOpt).getOrElse("")
+      if (toolCalls.isEmpty) {
+        Seq(
+          StreamedChunk(
+            id = chunkId,
+            content = content,
+            toolCall = None,
+            finishReason = finishReason,
+            thinkingDelta = thinkingDelta
+          )
+        )
+      } else {
+        val first = StreamedChunk(
+          id = chunkId,
           content = content,
-          toolCall = toolCall,
+          toolCall = Some(toolCalls.head),
           finishReason = finishReason,
           thinkingDelta = thinkingDelta
         )
-      )
+        val rest = toolCalls.drop(1).map { tc =>
+          StreamedChunk(
+            id = chunkId,
+            content = None,
+            toolCall = Some(tc),
+            finishReason = None,
+            thinkingDelta = None
+          )
+        }
+        Seq(first) ++ rest
+      }
     } else {
-      None
+      Seq.empty
     }
   }
+
+  private def parseStreamingArguments(raw: String): ujson.Value =
+    if (raw.isEmpty) ujson.Null else scala.util.Try(ujson.read(raw)).getOrElse(ujson.Str(raw))
 
   private def createRequestBody(conversation: Conversation, options: CompletionOptions): ujson.Obj = {
     val messages = conversation.messages.map {

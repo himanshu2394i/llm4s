@@ -139,6 +139,20 @@ class StreamingAccumulatorTest extends AnyFunSuite with Matchers {
     toolCalls.head.name shouldBe "get_weather"
   }
 
+  test("should assemble tool call arguments from raw JSON fragments") {
+    val accumulator = StreamingAccumulator.create()
+
+    val partialCall1 = ToolCall("tool-1", "get_weather", ujson.Str("{\"location\":"))
+    val partialCall2 = ToolCall("tool-1", "", ujson.Str("\"SF\"}"))
+
+    accumulator.addChunk(StreamedChunk("msg-1", None, Some(partialCall1), None))
+    accumulator.addChunk(StreamedChunk("msg-1", None, Some(partialCall2), None))
+
+    val toolCalls = accumulator.getCurrentToolCalls
+    (toolCalls should have).length(1)
+    toolCalls.head.arguments("location").str shouldBe "SF"
+  }
+
   // ===========================================
   // Thinking content tests (Phase 4.1)
   // ===========================================

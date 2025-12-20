@@ -4,6 +4,7 @@ import org.llm4s.llmconnect.model._
 import org.llm4s.types.Result
 
 import scala.collection.mutable
+import scala.util.Try
 
 /**
  * Accumulates streaming chunks into a complete response.
@@ -52,9 +53,13 @@ class StreamingAccumulator {
           partial.name = toolCall.name
         }
 
-        // Accumulate arguments
-        if (toolCall.arguments != ujson.Null) {
-          partial.argumentsBuilder.append(toolCall.arguments.render())
+        // Accumulate arguments; preserve raw fragments when streaming partial JSON
+        toolCall.arguments match {
+          case ujson.Str(raw) if raw.nonEmpty =>
+            partial.argumentsBuilder.append(raw)
+          case args if args != ujson.Null =>
+            partial.argumentsBuilder.append(args.render())
+          case _ =>
         }
       }
     }
@@ -86,10 +91,16 @@ class StreamingAccumulator {
   def getCurrentToolCalls: Seq[ToolCall] = {
     val completed = toolCalls.toSeq
     val partial = partialToolCalls.values.map { p =>
+      val args =
+        if (p.argumentsBuilder.isEmpty) ujson.Null
+        else {
+          val raw = p.argumentsBuilder.toString
+          Try(ujson.read(raw)).getOrElse(ujson.Str(raw))
+        }
       ToolCall(
         id = p.id,
         name = p.name,
-        arguments = if (p.argumentsBuilder.isEmpty) ujson.Null else ujson.read(p.argumentsBuilder.toString)
+        arguments = args
       )
     }.toSeq
     completed ++ partial

@@ -65,6 +65,9 @@ final case class InMemoryStore private (
     topK: Int,
     filter: MemoryFilter
   ): Result[Seq[ScoredMemory]] = {
+    if (query.trim.isEmpty) {
+      return Right(Seq.empty)
+    }
     // First filter by criteria
     val filtered = memories.values.filter(filter.matches).toSeq
 

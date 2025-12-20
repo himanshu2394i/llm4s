@@ -61,12 +61,14 @@ class ContainerisedWorkspaceTest extends AnyFunSuite with Matchers with BeforeAn
     }
   }
 
+  private val EnableDockerEnvVar = "LLM4S_DOCKER_TESTS"
+
   private def isDockerAvailable: Boolean =
-    false // temporarily disable this test
-//    Try {
-//      val process = Runtime.getRuntime.exec(Array("docker", "--version"))
-//      process.waitFor() == 0
-//    }.getOrElse(false)
+    sys.env.get(EnableDockerEnvVar).exists(_.equalsIgnoreCase("true")) &&
+      Try {
+        val process = Runtime.getRuntime.exec(Array("docker", "--version"))
+        process.waitFor() == 0
+      }.getOrElse(false)
 
   test("WebSocket workspace can handle basic file operations") {
     assume(isDockerAvailable, "Docker not available - skipping WebSocket tests")

@@ -140,6 +140,18 @@ class InMemoryStoreSpec extends AnyFlatSpec with Matchers {
     scored.head.memory.content should include("JVM")
   }
 
+  it should "return empty results for blank search queries" in {
+    val memory1 = createMemory("Scala is a programming language")
+    val memory2 = createMemory("Java runs on the JVM")
+
+    val result = for {
+      store  <- InMemoryStore.withMemories(Seq(memory1, memory2))
+      scored <- store.search("   ", topK = 10)
+    } yield scored
+
+    result shouldBe Right(Seq.empty)
+  }
+
   it should "return recent memories in descending order" in {
     val old    = Memory(MemoryId.generate(), "Old", MemoryType.Conversation, Map.empty, dayAgo)
     val medium = Memory(MemoryId.generate(), "Medium", MemoryType.Conversation, Map.empty, hourAgo)
