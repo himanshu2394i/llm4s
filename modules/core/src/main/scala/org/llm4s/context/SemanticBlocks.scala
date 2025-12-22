@@ -5,15 +5,58 @@ import org.llm4s.types.{ Result, SemanticBlockId }
 import org.slf4j.LoggerFactory
 
 /**
- * Groups messages into semantic blocks (user+assistant pairs, tools, or standalone messages).
+ * Groups messages into semantic blocks for context compression and history management.
  *
- * Used by HistoryCompressor and other context management steps.
+ * ==Semantic Block Concept==
+ *
+ * A semantic block represents a logically related group of messages in a conversation.
+ * The primary patterns are:
+ *
+ *  - '''User-Assistant Pairs''': A user question followed by an assistant response.
+ *    These form the natural "turns" of a conversation.
+ *
+ *  - '''Tool Interactions''': Tool calls and their results, often associated with
+ *    an assistant message that triggered them.
+ *
+ *  - '''Standalone Messages''': Messages that don't fit the pair pattern (e.g.,
+ *    system messages, isolated assistant responses).
+ *
+ * ==Algorithm==
+ *
+ * The grouping algorithm uses a tail-recursive state machine:
+ *
+ * 1. '''UserMessage''': Starts a new block expecting an assistant response
+ * 2. '''AssistantMessage''': Completes a user block, or becomes standalone
+ * 3. '''ToolMessage''': Attaches to the current block or becomes standalone
+ * 4. '''SystemMessage''': Treated similarly to assistant (can complete blocks)
+ *
+ * @example
+ * {{{
+ * val messages = Seq(
+ *   UserMessage("What's the weather?"),
+ *   AssistantMessage("I'll check for you..."),
+ *   ToolMessage("""{"temp": 72}""", "call_1"),
+ *   AssistantMessage("It's 72 degrees.")
+ * )
+ * val blocks = SemanticBlocks.groupIntoSemanticBlocks(messages)
+ * // Result: One UserAssistantPair block containing all 4 messages
+ * }}}
+ *
+ * @see [[HistoryCompressor]] which uses semantic blocks for history compression
+ * @see [[SemanticBlockType]] for the classification of block types
  */
 object SemanticBlocks {
   private val logger = LoggerFactory.getLogger(getClass)
 
   /**
-   * Group messages into semantic blocks (conversation pairs + standalone messages)
+   * Group messages into semantic blocks.
+   *
+   * The algorithm processes messages sequentially, maintaining state about the
+   * current block being built. User messages start new blocks, assistant messages
+   * complete them, and tool messages are attached to existing blocks.
+   *
+   * @param messages The conversation messages to group
+   * @return A sequence of semantic blocks, or an error if grouping fails
    */
   def groupIntoSemanticBlocks(messages: Seq[Message]): Result[Seq[SemanticBlock]] = {
     @scala.annotation.tailrec
@@ -77,7 +120,15 @@ object SemanticBlocks {
 }
 
 /**
- * Represents a semantic block of related messages in a conversation
+ * Represents a semantic block of related messages in a conversation.
+ *
+ * A semantic block groups logically related messages together, typically
+ * a user-assistant exchange with any associated tool calls.
+ *
+ * @param id Unique identifier for this block
+ * @param messages The messages contained in this block
+ * @param blockType The classification of this block (pair, standalone, etc.)
+ * @param expectingAssistantResponse True if the block is incomplete (awaiting response)
  */
 case class SemanticBlock(
   id: SemanticBlockId,
@@ -147,7 +198,15 @@ object SemanticBlock {
 }
 
 /**
- * Types of semantic blocks for different conversation patterns
+ * Classification of semantic block types.
+ *
+ * Block types help compression algorithms make decisions about how to
+ * handle different conversation patterns:
+ *
+ *  - '''UserAssistantPair''': Complete conversation turn, can be summarized
+ *  - '''StandaloneAssistant''': Isolated response, preserve carefully
+ *  - '''StandaloneTool''': Tool output without context, may need special handling
+ *  - '''Other''': Unclassified, treat conservatively
  */
 sealed trait SemanticBlockType
 object SemanticBlockType {

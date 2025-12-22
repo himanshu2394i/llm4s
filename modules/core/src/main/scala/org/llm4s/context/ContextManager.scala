@@ -64,31 +64,31 @@ class ContextManager(
 
     if (!config.enableDeterministicCompression) {
       logger.debug("Deterministic compression disabled in configuration")
-      return Right(PipelineStep("ToolDeterministicCompaction", messages, currentTokens, currentTokens, applied = false))
-    }
+      Right(PipelineStep("ToolDeterministicCompaction", messages, currentTokens, currentTokens, applied = false))
+    } else {
+      // Cap equals current size: allows compaction but never forces arbitrary reduction.
+      val capAtCurrent = currentTokens
+      logger.info("Applying tool deterministic compaction")
 
-    // Cap equals current size: allows compaction but never forces arbitrary reduction.
-    val capAtCurrent = currentTokens
-    logger.info("Applying tool deterministic compaction")
-
-    DeterministicCompressor
-      .compressToCap(
-        messages,
-        tokenCounter,
-        capAtCurrent,
-        artifactStore,
-        enableSubjectiveEdits = false // Tool compaction only in Step 1
-      )
-      .map { compressedMessages =>
-        val finalTokens = tokenCounter.countConversation(Conversation(compressedMessages))
-        PipelineStep(
-          name = "ToolDeterministicCompaction",
-          messages = compressedMessages,
-          tokensBefore = currentTokens,
-          tokensAfter = finalTokens,
-          applied = compressedMessages != messages
+      DeterministicCompressor
+        .compressToCap(
+          messages,
+          tokenCounter,
+          capAtCurrent,
+          artifactStore,
+          enableSubjectiveEdits = false // Tool compaction only in Step 1
         )
-      }
+        .map { compressedMessages =>
+          val finalTokens = tokenCounter.countConversation(Conversation(compressedMessages))
+          PipelineStep(
+            name = "ToolDeterministicCompaction",
+            messages = compressedMessages,
+            tokensBefore = currentTokens,
+            tokensAfter = finalTokens,
+            applied = compressedMessages != messages
+          )
+        }
+    }
   }
 
   /**
@@ -99,22 +99,22 @@ class ContextManager(
 
     if (currentTokens <= budget) {
       logger.debug("Messages fit budget, skipping history compression")
-      return Right(PipelineStep("HistoryCompression", messages, currentTokens, currentTokens, applied = false))
+      Right(PipelineStep("HistoryCompression", messages, currentTokens, currentTokens, applied = false))
+    } else {
+      logger.info("Applying history compression with deterministic digest")
+      HistoryCompressor
+        .compressToDigest(messages, tokenCounter, config.summaryTokenTarget, config.maxSemanticBlocks)
+        .map { compressedMessages =>
+          val finalTokens = tokenCounter.countConversation(Conversation(compressedMessages))
+          PipelineStep(
+            name = "HistoryCompression",
+            messages = compressedMessages,
+            tokensBefore = currentTokens,
+            tokensAfter = finalTokens,
+            applied = compressedMessages != messages
+          )
+        }
     }
-
-    logger.info("Applying history compression with deterministic digest")
-    HistoryCompressor
-      .compressToDigest(messages, tokenCounter, config.summaryTokenTarget, config.maxSemanticBlocks)
-      .map { compressedMessages =>
-        val finalTokens = tokenCounter.countConversation(Conversation(compressedMessages))
-        PipelineStep(
-          name = "HistoryCompression",
-          messages = compressedMessages,
-          tokensBefore = currentTokens,
-          tokensAfter = finalTokens,
-          applied = compressedMessages != messages
-        )
-      }
   }
 
   /**
@@ -122,28 +122,27 @@ class ContextManager(
    */
   private def applyLLMHistorySqueeze(messages: Seq[Message], budget: TokenBudget): Result[PipelineStep] = {
     val currentTokens = tokenCounter.countConversation(Conversation(messages))
+    val skipStep      = PipelineStep("LLMHistorySqueeze", messages, currentTokens, currentTokens, applied = false)
 
     if (currentTokens <= budget) {
       logger.debug("Messages fit budget, skipping LLM history squeeze")
-      return Right(PipelineStep("LLMHistorySqueeze", messages, currentTokens, currentTokens, applied = false))
-    }
-
-    if (!config.enableLLMCompression || llmClient.isEmpty) {
+      Right(skipStep)
+    } else if (!config.enableLLMCompression || llmClient.isEmpty) {
       logger.debug("LLM compression disabled or no client available")
-      return Right(PipelineStep("LLMHistorySqueeze", messages, currentTokens, currentTokens, applied = false))
-    }
-
-    logger.info("Applying LLM history squeeze to digest messages")
-    LLMCompressor.squeezeDigest(messages, tokenCounter, llmClient.get, config.summaryTokenTarget).map {
-      compressedMessages =>
-        val finalTokens = tokenCounter.countConversation(Conversation(compressedMessages))
-        PipelineStep(
-          name = "LLMHistorySqueeze",
-          messages = compressedMessages,
-          tokensBefore = currentTokens,
-          tokensAfter = finalTokens,
-          applied = compressedMessages != messages
-        )
+      Right(skipStep)
+    } else {
+      logger.info("Applying LLM history squeeze to digest messages")
+      LLMCompressor.squeezeDigest(messages, tokenCounter, llmClient.get, config.summaryTokenTarget).map {
+        compressedMessages =>
+          val finalTokens = tokenCounter.countConversation(Conversation(compressedMessages))
+          PipelineStep(
+            name = "LLMHistorySqueeze",
+            messages = compressedMessages,
+            tokensBefore = currentTokens,
+            tokensAfter = finalTokens,
+            applied = compressedMessages != messages
+          )
+      }
     }
   }
 

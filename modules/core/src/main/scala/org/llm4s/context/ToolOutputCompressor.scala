@@ -10,17 +10,60 @@ import scala.util.Try
 
 /**
  * Handles intelligent compression and externalization of tool outputs.
- * Implements content-addressed storage for large outputs and schema-aware
- * compression for structured data.
+ *
+ * Tool outputs (from function calls, API responses, file reads) can be very large
+ * and quickly consume the context window. This compressor applies content-aware
+ * strategies to reduce their size while preserving essential information.
+ *
+ * ==Content Type Detection==
+ *
+ * The compressor automatically detects content types:
+ *
+ *  - '''JSON/YAML''': Removes null values, empty strings, truncates large arrays
+ *  - '''Logs''': Keeps head/tail, collapses repeated lines
+ *  - '''Errors''': Preserves error message and top stack frames
+ *  - '''Binary''': Replaces with placeholder (always externalized)
+ *  - '''Text''': Generic word-based truncation
+ *
+ * ==Size Thresholds==
+ *
+ * Content is processed based on size:
+ *  - '''< 2KB''': Kept as-is (no compression)
+ *  - '''2KB - 8KB''': Inline compression (type-specific)
+ *  - '''> 8KB''': Externalized to [[ArtifactStore]] with content pointer
+ *
+ * ==Externalization==
+ *
+ * Large content is stored in an [[ArtifactStore]] and replaced with a pointer:
+ * {{{
+ * [EXTERNALIZED: abc123... | JSON | JSON object with 42 fields, 15234 bytes]
+ * }}}
+ *
+ * The original content can be retrieved using the artifact key.
+ *
+ * @see [[ArtifactStore]] for content storage interface
+ * @see [[DeterministicCompressor]] which uses this for the tool compaction phase
  */
 object ToolOutputCompressor {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  private val DefaultExternalizationThreshold: ExternalizationThreshold = 8192L // 8KB
-  private val MaxInlineToolOutput                                       = 2048L // 2KB max for inline content
+  /** Content larger than this is externalized to artifact storage (default: 8KB) */
+  private val DefaultExternalizationThreshold: ExternalizationThreshold = 8192L
+
+  /** Content larger than this but under externalization threshold gets inline compression (2KB) */
+  private val MaxInlineToolOutput = 2048L
 
   /**
-   * Compress tool messages using externalization and schema-aware strategies
+   * Compress tool messages using externalization and schema-aware strategies.
+   *
+   * Processes all ToolMessage instances in the sequence, leaving other message
+   * types unchanged. Each tool message is analyzed for content type and size,
+   * then compressed or externalized accordingly.
+   *
+   * @param messages The messages to process
+   * @param artifactStore Storage for externalized content
+   * @param threshold Size threshold for externalization (default: 8KB)
+   * @return Processed messages with compressed tool outputs
    */
   def compressToolOutputs(
     messages: Seq[Message],
@@ -259,21 +302,56 @@ object ToolOutputCompressor {
 }
 
 /**
- * Simple in-memory artifact store for externalized content.
- * In production, this could be replaced with cloud storage, database, etc.
+ * Storage interface for externalized content.
+ *
+ * When tool outputs exceed the externalization threshold, they are stored
+ * in an ArtifactStore and replaced with content pointers. This allows the
+ * conversation to reference the content without including it inline.
+ *
+ * ==Content-Addressed Storage==
+ *
+ * Content is stored using content-addressed keys (based on content hash),
+ * which enables:
+ *  - Deduplication of identical outputs
+ *  - Efficient retrieval without scanning
+ *  - Immutable content guarantees
+ *
+ * ==Implementations==
+ *
+ * Use [[ArtifactStore.inMemory]] for testing and short-lived sessions.
+ * For production, implement with persistent storage (database, S3, etc.).
  */
 trait ArtifactStore {
+
+  /** Store content under the given key. */
   def store(key: ArtifactKey, content: String): Result[Unit]
+
+  /** Retrieve content by key, returning None if not found. */
   def retrieve(key: ArtifactKey): Result[Option[String]]
+
+  /** Check if content exists for the given key. */
   def exists(key: ArtifactKey): Boolean
 }
 
+/**
+ * Factory methods for [[ArtifactStore]] implementations.
+ */
 object ArtifactStore {
+
+  /** Create an in-memory artifact store (suitable for testing). */
   def inMemory(): ArtifactStore = new InMemoryArtifactStore()
 }
 
+/**
+ * Thread-safe in-memory implementation of [[ArtifactStore]].
+ *
+ * Uses ConcurrentHashMap for safe concurrent access.
+ * Suitable for testing and single-JVM use cases.
+ */
 private class InMemoryArtifactStore extends ArtifactStore {
-  private val storage = scala.collection.mutable.Map.empty[ArtifactKey, String]
+  import java.util.concurrent.ConcurrentHashMap
+
+  private val storage = new ConcurrentHashMap[ArtifactKey, String]()
 
   def store(key: ArtifactKey, content: String): Result[Unit] = {
     storage.put(key, content)
@@ -281,8 +359,8 @@ private class InMemoryArtifactStore extends ArtifactStore {
   }
 
   def retrieve(key: ArtifactKey): Result[Option[String]] =
-    Right(storage.get(key))
+    Right(Option(storage.get(key)))
 
   def exists(key: ArtifactKey): Boolean =
-    storage.contains(key)
+    storage.containsKey(key)
 }

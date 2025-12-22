@@ -10,6 +10,26 @@ import org.slf4j.LoggerFactory
 /**
  * Counts tokens in conversations and messages using configurable tokenizers.
  * Provides accurate token counting for context management and budget planning.
+ *
+ * Token counting is essential for:
+ *  - Ensuring conversations fit within model context windows
+ *  - Budget planning for API costs (many providers charge per token)
+ *  - Context compression decisions in [[ContextManager]]
+ *
+ * The counter applies fixed overheads to account for special tokens:
+ *  - Message overhead: 4 tokens per message (role markers, delimiters)
+ *  - Tool call overhead: 10 tokens per tool call (function markers)
+ *  - Conversation overhead: 10 tokens (conversation framing)
+ *
+ * @example
+ * {{{
+ * val counter = ConversationTokenCounter.forModel("gpt-4o").getOrElse(???)
+ * val tokens = counter.countConversation(conversation)
+ * println(s"Conversation uses \$tokens tokens")
+ * }}}
+ *
+ * @see [[ConversationTokenCounter.forModel]] for model-aware counter creation
+ * @see [[TokenBreakdown]] for detailed per-message token analysis
  */
 class ConversationTokenCounter private (tokenizer: org.llm4s.context.tokens.StringTokenizer) {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -73,31 +93,76 @@ class ConversationTokenCounter private (tokenizer: org.llm4s.context.tokens.Stri
   private val conversationOverhead = 10
 }
 
+/**
+ * Factory methods for creating [[ConversationTokenCounter]] instances.
+ *
+ * Provides model-aware counter creation that automatically selects the appropriate
+ * tokenizer based on the model name. Supports OpenAI, Anthropic, Azure, and Ollama models.
+ *
+ * ==Tokenizer Selection==
+ *
+ * Different models use different tokenization schemes:
+ *  - '''GPT-4o, o1''': Uses `o200k_base` tokenizer
+ *  - '''GPT-4, GPT-3.5''': Uses `cl100k_base` tokenizer
+ *  - '''Claude models''': Uses `cl100k_base` approximation (may differ 20-30%)
+ *  - '''Ollama models''': Uses `cl100k_base` approximation
+ *
+ * @example
+ * {{{
+ * // Model-aware creation (recommended)
+ * val counter = ConversationTokenCounter.forModel("openai/gpt-4o")
+ *
+ * // Direct tokenizer selection
+ * val openAICounter = ConversationTokenCounter.openAI()
+ * val gpt4oCounter = ConversationTokenCounter.openAI_o200k()
+ * }}}
+ */
 object ConversationTokenCounter {
   private val logger = LoggerFactory.getLogger(getClass)
 
   /**
-   * Create a token counter for a specific tokenizer
+   * Create a token counter for a specific tokenizer.
+   *
+   * @param tokenizerId The tokenizer to use (e.g., `TokenizerId.CL100K_BASE`)
+   * @return A Result containing the counter, or an error if the tokenizer is unavailable
    */
   def apply(tokenizerId: TokenizerId): Result[ConversationTokenCounter] =
     createCounter(tokenizerId)
 
   /**
-   * Create a token counter using the most common OpenAI tokenizer (cl100k_base)
+   * Create a token counter using the OpenAI `cl100k_base` tokenizer.
+   *
+   * Suitable for GPT-4, GPT-3.5-turbo, and most embedding models.
+   * This is the most common OpenAI tokenizer and a reasonable fallback for unknown models.
+   *
+   * @return A Result containing the counter, or an error if the tokenizer is unavailable
    */
   def openAI(): Result[ConversationTokenCounter] =
     apply(TokenizerId.CL100K_BASE)
 
   /**
-   * Create a token counter using the newer OpenAI tokenizer (o200k_base) for GPT-4o
+   * Create a token counter using the OpenAI `o200k_base` tokenizer.
+   *
+   * Suitable for GPT-4o and o1 series models which use this newer tokenizer
+   * with a larger vocabulary (200k tokens vs 100k).
+   *
+   * @return A Result containing the counter, or an error if the tokenizer is unavailable
    */
   def openAI_o200k(): Result[ConversationTokenCounter] =
     apply(TokenizerId.O200K_BASE)
 
   /**
-   * Create a token counter for a specific model name (provider-aware)
-   * This is the recommended way to create token counters as it automatically
-   * selects the appropriate tokenizer for the model.
+   * Create a token counter for a specific model name with automatic tokenizer selection.
+   *
+   * This is the '''recommended''' way to create token counters as it automatically
+   * selects the appropriate tokenizer based on the model name and provider.
+   *
+   * The model name should be in the format `provider/model-name` (e.g., `openai/gpt-4o`,
+   * `anthropic/claude-3-sonnet`). Plain model names are also supported.
+   *
+   * @param modelName The model identifier (e.g., "gpt-4o", "openai/gpt-4o", "claude-3-sonnet")
+   * @return A Result containing the counter, or an error if the tokenizer is unavailable
+   * @see [[tokens.TokenizerMapping]] for the full model-to-tokenizer mapping
    */
   def forModel(modelName: String): Result[ConversationTokenCounter] = {
     val tokenizerId  = TokenizerMapping.getTokenizerId(modelName)

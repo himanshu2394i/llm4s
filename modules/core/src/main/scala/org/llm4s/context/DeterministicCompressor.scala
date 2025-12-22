@@ -6,19 +6,62 @@ import org.slf4j.LoggerFactory
 
 /**
  * Implements rule-based deterministic compression for conversation context.
- * Applies various cleanup strategies to reduce token usage while preserving meaning.
  *
- * Compression rules:
- * 1. Remove redundant phrases and filler words
- * 2. Compress repetitive explanations
- * 3. Truncate overly verbose responses
- * 4. Consolidate similar questions/responses
- * 5. Remove excessive formatting and examples
+ * This compressor applies predictable, reproducible transformations to reduce
+ * token usage while preserving semantic meaning. Unlike LLM-based compression,
+ * the output is deterministic and doesn't require API calls.
+ *
+ * ==Compression Pipeline==
+ *
+ * Compression occurs in two phases:
+ *
+ * 1. '''Tool Compaction''' (always applied):
+ *    - Compresses large JSON/YAML tool outputs
+ *    - Externalizes binary content
+ *    - Truncates verbose logs and error traces
+ *
+ * 2. '''Subjective Edits''' (optional, requires `enableSubjectiveEdits`):
+ *    - Removes filler words from transcript-like content
+ *    - Deduplicates repetitive sentences
+ *    - Truncates overly verbose assistant responses
+ *
+ * ==Safety Guarantees==
+ *
+ * The compressor is designed to be '''safe''' and '''conservative''':
+ *  - User messages are '''never''' modified
+ *  - Code blocks and JSON are preserved verbatim
+ *  - Filler word removal only applies to "transcript-like" content
+ *  - Truncation preserves first and last sentences
+ *
+ * @example
+ * {{{
+ * val compressed = DeterministicCompressor.compressToCap(
+ *   messages = conversation.messages,
+ *   tokenCounter = counter,
+ *   capTokens = 4000,
+ *   enableSubjectiveEdits = true
+ * )
+ * }}}
+ *
+ * @see [[ToolOutputCompressor]] for the tool compaction implementation
+ * @see [[CompressionRule]] for individual compression rules
  */
 object DeterministicCompressor {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  /** Orchestrator: delegate to "tool pass" then (optionally) "subjective pass". */
+  /**
+   * Compress messages to fit within a token budget.
+   *
+   * Applies tool compaction first, then optionally subjective edits until
+   * the total token count is at or below `capTokens`.
+   *
+   * @param messages The messages to compress
+   * @param tokenCounter Token counter for measuring compression progress
+   * @param capTokens Target maximum token count
+   * @param artifactStore Optional store for externalized content (defaults to in-memory)
+   * @param enableSubjectiveEdits Whether to apply filler word removal and truncation
+   * @return Compressed messages, or an error if compression fails
+   */
   def compressToCap(
     messages: Seq[Message],
     tokenCounter: ConversationTokenCounter,
@@ -105,12 +148,34 @@ object DeterministicCompressor {
 }
 
 /**
- * Represents a compression rule that can be applied to messages
+ * Represents a named compression rule that transforms a sequence of messages.
+ *
+ * Rules are applied sequentially by [[DeterministicCompressor]] until the
+ * token budget is met. Each rule is designed to be:
+ *  - '''Idempotent''': Applying twice produces the same result
+ *  - '''Safe''': Never removes critical semantic information
+ *  - '''Measurable''': Token reduction can be calculated
+ *
+ * @param name Identifier for logging and debugging
+ * @param apply The transformation function
  */
 case class CompressionRule(name: String, apply: Seq[Message] => Seq[Message])
 
+/**
+ * Built-in compression rules for common scenarios.
+ *
+ * ==Available Rules==
+ *
+ *  - '''removeRedundantPhrases''': Removes "as I mentioned before", "like I said"
+ *  - '''compressRepetitiveContent''': Deduplicates repeated sentences with "×N" markers
+ *  - '''truncateVerboseResponses''': Summarizes very long assistant responses
+ *  - '''removeFillerWords''': Cleans "um", "well", "you know" from transcripts
+ *  - '''consolidateExamples''': Merges multiple example messages
+ *  - '''compressToolOutputs''': Compresses large tool outputs (see [[ToolOutputCompressor]])
+ */
 object CompressionRule {
 
+  /** Removes phrases like "as I mentioned before", "like I said", etc. */
   val removeRedundantPhrases: CompressionRule = CompressionRule(
     "remove_redundant_phrases",
     messages => messages.map(compressRedundantPhrases)
