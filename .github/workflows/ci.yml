@@ -78,6 +78,8 @@ jobs:
           PGVECTOR_TEST_URL: jdbc:postgresql://localhost:5432/postgres
           PGVECTOR_USER: postgres
           PGVECTOR_PASSWORD: postgres
+          PGVECTOR_TEST_USER: postgres
+          PGVECTOR_TEST_PASSWORD: postgres
         run: sbt coverage test coverageAggregate
 
       - name: Upload coverage to Codecov
@@ -136,7 +138,9 @@ jobs:
           PGVECTOR_TEST_URL: jdbc:postgresql://localhost:5432/postgres
           PGVECTOR_USER: postgres
           PGVECTOR_PASSWORD: postgres
-        run: sbt "core/testOnly org.llm4s.rag.permissions.pg.*"
+          PGVECTOR_TEST_USER: postgres
+          PGVECTOR_TEST_PASSWORD: postgres
+        run: sbt "core/testOnly org.llm4s.rag.permissions.pg.* org.llm4s.vectorstore.PgVectorStoreSpec"
 
   # Main test matrix
   test:

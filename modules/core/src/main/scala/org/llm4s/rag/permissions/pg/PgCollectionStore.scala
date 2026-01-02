@@ -431,10 +431,20 @@ final class PgCollectionStore(
       // Child is public but parent is restricted - NOT allowed
       Left(ValidationError("permissions", "Cannot make collection public when parent is restricted"))
     } else {
-      // Child permissions must be subset of parent (or equal)
-      // Actually, we allow child to have any permissions that are in parent
-      // The effective permissions will be the intersection
-      Right(())
+      // Child permissions must be a subset of parent permissions.
+      // This prevents accidentally loosening permissions through disjoint sets
+      // (where intersection would be empty, treated as public).
+      val invalidPrincipals = child -- parent
+      if (invalidPrincipals.nonEmpty) {
+        Left(
+          ValidationError(
+            "permissions",
+            s"Child collection cannot grant access to principals not in parent: ${invalidPrincipals.map(_.value).mkString(", ")}"
+          )
+        )
+      } else {
+        Right(())
+      }
     }
 
   private def rowToCollection(rs: ResultSet): Collection = {

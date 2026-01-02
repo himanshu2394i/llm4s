@@ -171,6 +171,72 @@ class PgSearchIndexSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll
     updatedParent.get.isLeaf shouldBe false
   }
 
+  it should "reject child permissions that are not subset of parent" in {
+    requirePg()
+    val store      = searchIndex.get.collections
+    val principals = searchIndex.get.principals
+
+    val result = for {
+      group1 <- principals.getOrCreate(ExternalPrincipal.Group("perm-test-group1"))
+      group2 <- principals.getOrCreate(ExternalPrincipal.Group("perm-test-group2"))
+
+      // Create restricted parent with group1
+      _ <- store.create(
+        CollectionConfig(
+          path = CollectionPath.unsafe("perm-test-parent"),
+          queryableBy = Set(group1),
+          isLeaf = true
+        )
+      )
+
+      // Try to create child with group2 (not in parent) - should fail
+      childResult = store.create(
+        CollectionConfig(
+          path = CollectionPath.unsafe("perm-test-parent/child"),
+          queryableBy = Set(group2),
+          isLeaf = true
+        )
+      )
+    } yield childResult
+
+    result.isRight shouldBe true
+    val childResult = result.toOption.get
+    childResult.isLeft shouldBe true
+    childResult.left.toOption.get.message should include("not in parent")
+  }
+
+  it should "allow child permissions that are subset of parent" in {
+    requirePg()
+    val store      = searchIndex.get.collections
+    val principals = searchIndex.get.principals
+
+    val result = for {
+      group1 <- principals.getOrCreate(ExternalPrincipal.Group("subset-test-group1"))
+      group2 <- principals.getOrCreate(ExternalPrincipal.Group("subset-test-group2"))
+
+      // Create restricted parent with both groups
+      _ <- store.create(
+        CollectionConfig(
+          path = CollectionPath.unsafe("subset-test-parent"),
+          queryableBy = Set(group1, group2),
+          isLeaf = true
+        )
+      )
+
+      // Create child with only group1 (subset of parent) - should succeed
+      child <- store.create(
+        CollectionConfig(
+          path = CollectionPath.unsafe("subset-test-parent/child"),
+          queryableBy = Set(group1),
+          isLeaf = true
+        )
+      )
+    } yield child
+
+    result.isRight shouldBe true
+    result.toOption.get.queryableBy.size shouldBe 1
+  }
+
   it should "list collections by pattern" in {
     requirePg()
     val store = searchIndex.get.collections
