@@ -99,9 +99,21 @@ object PgSchemaManager {
    */
   def extendVectorsTable(conn: Connection, tableName: String): Result[Unit] = Try {
     Using.resource(conn.createStatement()) { stmt =>
+      // Create vectors table if it doesn't exist (for standalone permission testing)
+      // Uses vector without dimension for flexibility in tests
+      stmt.execute(s"""
+        CREATE TABLE IF NOT EXISTS $tableName (
+          id TEXT PRIMARY KEY,
+          content TEXT NOT NULL,
+          embedding vector,
+          embedding_dim INTEGER,
+          metadata JSONB DEFAULT '{}'
+        )
+      """)
+
       // Add collection_id column if not exists
       stmt.execute(s"""
-        DO $$
+        DO $$$$
         BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -109,12 +121,12 @@ object PgSchemaManager {
           ) THEN
             ALTER TABLE $tableName ADD COLUMN collection_id INTEGER;
           END IF;
-        END $$
+        END $$$$
       """)
 
       // Add readable_by column if not exists
       stmt.execute(s"""
-        DO $$
+        DO $$$$
         BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -122,7 +134,7 @@ object PgSchemaManager {
           ) THEN
             ALTER TABLE $tableName ADD COLUMN readable_by INTEGER[] DEFAULT '{}';
           END IF;
-        END $$
+        END $$$$
       """)
 
       // Create indexes
@@ -244,7 +256,7 @@ object PgSchemaManager {
     Using.resource(conn.createStatement()) { stmt =>
       // Remove columns from vectors table
       stmt.execute(s"""
-        DO $$
+        DO $$$$
         BEGIN
           IF EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -258,7 +270,7 @@ object PgSchemaManager {
           ) THEN
             ALTER TABLE $tableName DROP COLUMN readable_by;
           END IF;
-        END $$
+        END $$$$
       """)
 
       // Drop tables

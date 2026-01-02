@@ -277,6 +277,9 @@ final class PgSearchIndex private (
       } yield ()
     }
 
+  override def dropSchema(): Result[Unit] =
+    withConnection(conn => PgSchemaManager.dropSchema(conn, vectorTableName))
+
   override def close(): Unit =
     dataSource.close()
 

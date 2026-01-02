@@ -33,6 +33,9 @@ class PgSearchIndexSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll
     pgUrl.foreach { url =>
       PgSearchIndex.fromJdbcUrl(url, pgUser, pgPassword, testTableName) match {
         case Right(index) =>
+          // Clean up from previous test runs
+          index.dropSchema()
+
           index.initializeSchema() match {
             case Right(_) => searchIndex = Some(index)
             case Left(e)  => println(s"Failed to initialize schema: ${e.message}")

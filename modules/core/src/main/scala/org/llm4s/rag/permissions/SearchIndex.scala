@@ -135,6 +135,16 @@ trait SearchIndex {
   def initializeSchema(): Result[Unit]
 
   /**
+   * Drop the permission schema.
+   *
+   * WARNING: This is destructive and will delete all permission data.
+   * Only use for testing or complete reset.
+   *
+   * @return Success or error
+   */
+  def dropSchema(): Result[Unit]
+
+  /**
    * Close the search index and release resources.
    */
   def close(): Unit
