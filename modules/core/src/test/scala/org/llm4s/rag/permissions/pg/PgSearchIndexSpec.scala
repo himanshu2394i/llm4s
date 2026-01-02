@@ -314,6 +314,87 @@ class PgSearchIndexSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll
     userWithoutGroup.map(_.path.value) should not contain "restricted-test"
   }
 
+  it should "update collection permissions" in {
+    requirePg()
+    val store      = searchIndex.get.collections
+    val principals = searchIndex.get.principals
+
+    val result = for {
+      group1 <- principals.getOrCreate(ExternalPrincipal.Group("update-perm-group1"))
+      group2 <- principals.getOrCreate(ExternalPrincipal.Group("update-perm-group2"))
+
+      // Create collection with group1
+      created <- store.create(
+        CollectionConfig(
+          path = CollectionPath.unsafe("update-perm-test"),
+          queryableBy = Set(group1),
+          isLeaf = true
+        )
+      )
+
+      // Update to also include group2
+      updated <- store.updatePermissions(
+        CollectionPath.unsafe("update-perm-test"),
+        Set(group1, group2)
+      )
+    } yield (created, updated)
+
+    result.isRight shouldBe true
+    val (created, updated) = result.toOption.get
+    created.queryableBy.size shouldBe 1
+    updated.queryableBy.size shouldBe 2
+  }
+
+  it should "delete collections" in {
+    requirePg()
+    val store = searchIndex.get.collections
+
+    val result = for {
+      _ <- store.create(
+        CollectionConfig.publicLeaf(CollectionPath.unsafe("delete-coll-test"))
+      )
+      beforeDelete <- store.get(CollectionPath.unsafe("delete-coll-test"))
+      _            <- store.delete(CollectionPath.unsafe("delete-coll-test"))
+      afterDelete  <- store.get(CollectionPath.unsafe("delete-coll-test"))
+    } yield (beforeDelete, afterDelete)
+
+    result match {
+      case Left(err) => fail(s"Delete test failed: ${err.message}")
+      case Right((beforeDelete, afterDelete)) =>
+        beforeDelete.isDefined shouldBe true
+        afterDelete.isDefined shouldBe false
+    }
+  }
+
+  it should "get collection stats" in {
+    requirePg()
+    val index = searchIndex.get
+
+    val result = for {
+      _ <- index.collections.ensureExists(
+        CollectionConfig.publicLeaf(CollectionPath.unsafe("stats-test"))
+      )
+
+      // Ingest some documents
+      _ <- index.ingest(
+        collectionPath = CollectionPath.unsafe("stats-test"),
+        documentId = "stats-doc-1",
+        chunks = Seq(
+          ChunkWithEmbedding("Content 1", Array(0.1f, 0.2f, 0.3f), 0),
+          ChunkWithEmbedding("Content 2", Array(0.2f, 0.3f, 0.4f), 1)
+        )
+      )
+
+      stats <- index.stats(CollectionPath.unsafe("stats-test"))
+    } yield stats
+
+    result match {
+      case Left(err) => fail(s"Stats test failed: ${err.message}")
+      case Right(stats) =>
+        stats.documentCount should be >= 1L
+    }
+  }
+
   // ========== SearchIndex Integration Tests ==========
 
   "PgSearchIndex" should "ingest and query with permissions" in {

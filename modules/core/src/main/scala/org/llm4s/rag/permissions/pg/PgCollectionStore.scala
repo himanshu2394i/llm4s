@@ -356,7 +356,7 @@ final class PgCollectionStore(
     withConnection { conn =>
       // Count unique docIds in the vectors table for this collection
       Using.resource(conn.prepareStatement(s"""
-        SELECT COUNT(DISTINCT metadata->>'docId')
+        SELECT COUNT(DISTINCT v.metadata->>'docId')
         FROM $vectorTableName v
         JOIN llm4s_collections c ON v.collection_id = c.id
         WHERE c.path = ?
