@@ -30,6 +30,9 @@ object PgSchemaManager {
    */
   def initializeSchema(conn: Connection): Result[Unit] = Try {
     Using.resource(conn.createStatement()) { stmt =>
+      // Enable pgvector extension if available (required for vector type)
+      stmt.execute("CREATE EXTENSION IF NOT EXISTS vector")
+
       // Create principals table for user/group mapping
       stmt.execute("""
         CREATE TABLE IF NOT EXISTS llm4s_principals (
