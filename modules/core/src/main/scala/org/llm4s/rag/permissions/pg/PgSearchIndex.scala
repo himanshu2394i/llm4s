@@ -201,7 +201,9 @@ final class PgSearchIndex private (
 
         Using.resource(conn.prepareStatement(sql)) { stmt =>
           chunks.foreach { chunk =>
-            val chunkId = s"$documentId-chunk-${chunk.chunkIndex}"
+            // Include collectionId in chunk ID to prevent cross-collection overwrites
+            // when the same documentId is ingested into multiple collections
+            val chunkId = s"coll-$collectionId-$documentId-chunk-${chunk.chunkIndex}"
             val chunkMetadata =
               metadata ++ chunk.metadata + ("docId" -> documentId) + ("chunkIndex" -> chunk.chunkIndex.toString)
 

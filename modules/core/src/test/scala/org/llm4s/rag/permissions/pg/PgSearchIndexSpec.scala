@@ -483,11 +483,12 @@ class PgSearchIndexSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll
     result.isRight shouldBe true
     val (secretResults, otherResults) = result.toOption.get
 
-    secretResults.map(_.record.id) should contain("secret-doc-chunk-0")
-    secretResults.map(_.record.id) should contain("public-doc-chunk-0")
+    // Check by docId in metadata (chunk IDs now include collection prefix)
+    secretResults.flatMap(_.record.metadata.get("docId")) should contain("secret-doc")
+    secretResults.flatMap(_.record.metadata.get("docId")) should contain("public-doc")
 
-    otherResults.map(_.record.id) should contain("public-doc-chunk-0")
-    otherResults.map(_.record.id) should not contain "secret-doc-chunk-0"
+    otherResults.flatMap(_.record.metadata.get("docId")) should contain("public-doc")
+    otherResults.flatMap(_.record.metadata.get("docId")) should not contain "secret-doc"
   }
 
   it should "delete documents correctly" in {
@@ -531,9 +532,66 @@ class PgSearchIndexSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll
     result.isRight shouldBe true
     val (beforeDelete, deleteCount, afterDelete) = result.toOption.get
 
-    (beforeDelete.map(_.record.id) should contain).allOf("to-delete-chunk-0", "to-delete-chunk-1")
+    // Check by docId in metadata (chunk IDs now include collection prefix)
+    beforeDelete.flatMap(_.record.metadata.get("docId")) should contain("to-delete")
+    beforeDelete.size shouldBe 2
     deleteCount shouldBe 2
-    afterDelete.map(_.record.id) should not contain allOf("to-delete-chunk-0", "to-delete-chunk-1")
+    afterDelete.flatMap(_.record.metadata.get("docId")) should not contain "to-delete"
+  }
+
+  it should "allow same documentId in different collections without overwriting" in {
+    requirePg()
+    val index = searchIndex.get
+
+    val result = for {
+      // Create two separate collections
+      _ <- index.collections.ensureExists(
+        CollectionConfig.publicLeaf(CollectionPath.unsafe("cross-coll-a"))
+      )
+      _ <- index.collections.ensureExists(
+        CollectionConfig.publicLeaf(CollectionPath.unsafe("cross-coll-b"))
+      )
+
+      // Ingest same documentId into both collections with different content
+      _ <- index.ingest(
+        collectionPath = CollectionPath.unsafe("cross-coll-a"),
+        documentId = "shared-doc-id",
+        chunks = Seq(ChunkWithEmbedding("Content from collection A", Array(0.1f, 0.2f, 0.3f), 0))
+      )
+      _ <- index.ingest(
+        collectionPath = CollectionPath.unsafe("cross-coll-b"),
+        documentId = "shared-doc-id",
+        chunks = Seq(ChunkWithEmbedding("Content from collection B", Array(0.4f, 0.5f, 0.6f), 0))
+      )
+
+      // Query collection A - should get A's content
+      resultsA <- index.query(
+        auth = UserAuthorization.Admin,
+        collectionPattern = CollectionPattern.Exact(CollectionPath.unsafe("cross-coll-a")),
+        queryVector = Array(0.1f, 0.2f, 0.3f),
+        topK = 10
+      )
+
+      // Query collection B - should get B's content
+      resultsB <- index.query(
+        auth = UserAuthorization.Admin,
+        collectionPattern = CollectionPattern.Exact(CollectionPath.unsafe("cross-coll-b")),
+        queryVector = Array(0.4f, 0.5f, 0.6f),
+        topK = 10
+      )
+    } yield (resultsA, resultsB)
+
+    result match {
+      case Left(err)                   => fail(s"Test failed: ${err.message}")
+      case Right((resultsA, resultsB)) =>
+        // Both collections should have the document
+        resultsA.size shouldBe 1
+        resultsB.size shouldBe 1
+
+        // Content should be different (not overwritten)
+        resultsA.head.record.content shouldBe Some("Content from collection A")
+        resultsB.head.record.content shouldBe Some("Content from collection B")
+    }
   }
 
   // ========== Schema Management Tests ==========
