@@ -294,69 +294,71 @@ class Agent(client: LLMClient) {
       logger.info("[DEBUG] processToolCalls: Processing {} tool calls", toolCalls.size)
     }
 
-    // Process each tool call and create tool messages
-    val toolMessages = toolCalls.zipWithIndex.map { case (toolCall, index) =>
-      val startTime = System.currentTimeMillis()
+    // Process each tool call, threading state through to capture logs
+    val (finalState, toolMessages) = toolCalls.zipWithIndex.foldLeft((state, Seq.empty[ToolMessage])) {
+      case ((currentState, messages), (toolCall, index)) =>
+        val startTime = System.currentTimeMillis()
 
-      if (debug) {
-        logger.info("[DEBUG] Tool call {}/{}: {}", index + 1, toolCalls.size, toolCall.name)
-        logger.info("[DEBUG]   Tool call ID: {}", toolCall.id)
-        logger.info("[DEBUG]   Arguments (raw JSON): {}", toolCall.arguments)
-        logger.info("[DEBUG]   Arguments type: {}", toolCall.arguments.getClass.getSimpleName)
-      } else {
-        logger.info("Executing tool: {} with arguments: {}", toolCall.name, toolCall.arguments)
-      }
+        if (debug) {
+          logger.info("[DEBUG] Tool call {}/{}: {}", index + 1, toolCalls.size, toolCall.name)
+          logger.info("[DEBUG]   Tool call ID: {}", toolCall.id)
+          logger.info("[DEBUG]   Arguments (raw JSON): {}", toolCall.arguments)
+          logger.info("[DEBUG]   Arguments type: {}", toolCall.arguments.getClass.getSimpleName)
+        } else {
+          logger.info("Executing tool: {} with arguments: {}", toolCall.name, toolCall.arguments)
+        }
 
-      val request = ToolCallRequest(toolCall.name, toolCall.arguments)
+        val request = ToolCallRequest(toolCall.name, toolCall.arguments)
 
-      if (debug) {
-        logger.info("[DEBUG]   Created ToolCallRequest")
-        logger.info("[DEBUG]   Executing via ToolRegistry...")
-      }
+        if (debug) {
+          logger.info("[DEBUG]   Created ToolCallRequest")
+          logger.info("[DEBUG]   Executing via ToolRegistry...")
+        }
 
-      val result = toolRegistry.execute(request)
+        val result = toolRegistry.execute(request)
 
-      val endTime  = System.currentTimeMillis()
-      val duration = endTime - startTime
+        val endTime  = System.currentTimeMillis()
+        val duration = endTime - startTime
 
-      val resultContent = result match {
-        case Right(json) =>
-          val jsonStr = json.render()
-          if (debug) {
-            logger.info("[DEBUG]   Tool {} SUCCESS in {}ms", toolCall.name, duration)
-            logger.info("[DEBUG]   Result (raw JSON): {}", jsonStr)
-            logger.info("[DEBUG]   Result type: {}", json.getClass.getSimpleName)
-          } else {
-            logger.info("Tool {} completed successfully in {}ms. Result: {}", toolCall.name, duration, jsonStr)
-          }
-          jsonStr
-        case Left(error) =>
-          val errorMessage = error.getFormattedMessage
-          if (debug) {
-            logger.error("[DEBUG]   Tool {} FAILED in {}ms", toolCall.name, duration)
-            logger.error("[DEBUG]   Error type: {}", error.getClass.getSimpleName)
-            logger.error("[DEBUG]   Error message: {}", errorMessage)
-          }
-          // Escape the error message for JSON
-          val escapedMessage = errorMessage
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-          val errorJson = s"""{ "isError": true, "error": "$escapedMessage" }"""
-          if (!debug) {
-            logger.warn("Tool {} failed in {}ms with error: {}", toolCall.name, duration, errorMessage)
-          }
-          errorJson
-      }
+        val resultContent = result match {
+          case Right(json) =>
+            val jsonStr = json.render()
+            if (debug) {
+              logger.info("[DEBUG]   Tool {} SUCCESS in {}ms", toolCall.name, duration)
+              logger.info("[DEBUG]   Result (raw JSON): {}", jsonStr)
+              logger.info("[DEBUG]   Result type: {}", json.getClass.getSimpleName)
+            } else {
+              logger.info("Tool {} completed successfully in {}ms. Result: {}", toolCall.name, duration, jsonStr)
+            }
+            jsonStr
+          case Left(error) =>
+            val errorMessage = error.getFormattedMessage
+            if (debug) {
+              logger.error("[DEBUG]   Tool {} FAILED in {}ms", toolCall.name, duration)
+              logger.error("[DEBUG]   Error type: {}", error.getClass.getSimpleName)
+              logger.error("[DEBUG]   Error message: {}", errorMessage)
+            }
+            // Escape the error message for JSON
+            val escapedMessage = errorMessage
+              .replace("\\", "\\\\")
+              .replace("\"", "\\\"")
+              .replace("\n", "\\n")
+              .replace("\r", "\\r")
+              .replace("\t", "\\t")
+            val errorJson = s"""{ "isError": true, "error": "$escapedMessage" }"""
+            if (!debug) {
+              logger.warn("Tool {} failed in {}ms with error: {}", toolCall.name, duration, errorMessage)
+            }
+            errorJson
+        }
 
-      if (debug) {
-        logger.info("[DEBUG]   Creating ToolMessage with ID: {}", toolCall.id)
-      }
+        if (debug) {
+          logger.info("[DEBUG]   Creating ToolMessage with ID: {}", toolCall.id)
+        }
 
-      state.log(s"[tool] ${toolCall.name} (${duration}ms): $resultContent")
-      ToolMessage(resultContent, toolCall.id)
+        val stateWithLog = currentState.log(s"[tool] ${toolCall.name} (${duration}ms): $resultContent")
+        val toolMessage  = ToolMessage(resultContent, toolCall.id)
+        (stateWithLog, messages :+ toolMessage)
     }
 
     if (debug) {
@@ -365,7 +367,7 @@ class Agent(client: LLMClient) {
     }
 
     // Add the tool messages to the conversation
-    state.addMessages(toolMessages)
+    finalState.addMessages(toolMessages)
   }
 
   /**
@@ -1156,10 +1158,17 @@ class Agent(client: LLMClient) {
     // Emit input guardrail events before validation
     inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailStarted(g.name, Instant.now())))
 
-    validateInput(query, inputGuardrails).flatMap { validatedQuery =>
-      // Emit input guardrail completion events
-      inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = true, Instant.now())))
+    val inputValidationResult = validateInput(query, inputGuardrails)
 
+    // Emit input guardrail completion events based on validation result
+    inputValidationResult match {
+      case Right(_) =>
+        inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = true, Instant.now())))
+      case Left(_) =>
+        inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = false, Instant.now())))
+    }
+
+    inputValidationResult.flatMap { validatedQuery =>
       // Emit start event
       onEvent(AgentEvent.agentStarted(validatedQuery, tools.tools.size))
 
@@ -1169,7 +1178,7 @@ class Agent(client: LLMClient) {
       runWithEventsInternal(
         initialState,
         onEvent,
-        maxSteps.getOrElse(10),
+        maxSteps,
         0,
         startTime,
         traceLogPath,
@@ -1178,12 +1187,21 @@ class Agent(client: LLMClient) {
         // Emit output guardrail events
         outputGuardrails.foreach(g => onEvent(AgentEvent.OutputGuardrailStarted(g.name, Instant.now())))
 
-        validateOutput(finalState, outputGuardrails).map { validatedState =>
-          outputGuardrails.foreach { g =>
-            onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = true, Instant.now()))
-          }
-          validatedState
+        val outputValidationResult = validateOutput(finalState, outputGuardrails)
+
+        // Emit output guardrail completion events based on validation result
+        outputValidationResult match {
+          case Right(_) =>
+            outputGuardrails.foreach { g =>
+              onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = true, Instant.now()))
+            }
+          case Left(_) =>
+            outputGuardrails.foreach { g =>
+              onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = false, Instant.now()))
+            }
         }
+
+        outputValidationResult
       }
     }
   }
@@ -1194,17 +1212,16 @@ class Agent(client: LLMClient) {
   private def runWithEventsInternal(
     state: AgentState,
     onEvent: AgentEvent => Unit,
-    maxSteps: Int,
+    maxSteps: Option[Int],
     currentStep: Int,
     startTime: Long,
     traceLogPath: Option[String],
     debug: Boolean
   ): Result[AgentState] = {
 
-    // Check step limit
-    if (
-      currentStep >= maxSteps && (state.status == AgentStatus.InProgress || state.status == AgentStatus.WaitingForTools)
-    ) {
+    // Check step limit - only check if maxSteps is defined (None means unlimited, matching non-streaming behavior)
+    val stepLimitReached = maxSteps.exists(max => currentStep >= max)
+    if (stepLimitReached && (state.status == AgentStatus.InProgress || state.status == AgentStatus.WaitingForTools)) {
       val failedState = state.withStatus(AgentStatus.Failed("Maximum step limit reached"))
       onEvent(
         AgentEvent.agentFailed(
@@ -1287,7 +1304,7 @@ class Agent(client: LLMClient) {
                         stateAfterTools,
                         handoff,
                         Some(reason),
-                        Some(maxSteps - currentStep),
+                        maxSteps.map(_ - currentStep),
                         traceLogPath,
                         debug
                       )
@@ -1325,7 +1342,7 @@ class Agent(client: LLMClient) {
         // Handle handoff
         onEvent(AgentEvent.HandoffStarted(handoff.handoffName, reason, handoff.preserveContext, Instant.now()))
         val handoffResult =
-          executeHandoff(state, handoff, reason, Some(maxSteps - currentStep), traceLogPath, debug)
+          executeHandoff(state, handoff, reason, maxSteps.map(_ - currentStep), traceLogPath, debug)
         onEvent(AgentEvent.HandoffCompleted(handoff.handoffName, handoffResult.isRight, Instant.now()))
         handoffResult
     }
@@ -1417,9 +1434,17 @@ class Agent(client: LLMClient) {
     // Emit input guardrail events
     inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailStarted(g.name, Instant.now())))
 
-    validateInput(newUserMessage, inputGuardrails).flatMap { validatedMessage =>
-      inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = true, Instant.now())))
+    val inputValidationResult = validateInput(newUserMessage, inputGuardrails)
 
+    // Emit input guardrail completion events based on validation result
+    inputValidationResult match {
+      case Right(_) =>
+        inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = true, Instant.now())))
+      case Left(_) =>
+        inputGuardrails.foreach(g => onEvent(AgentEvent.InputGuardrailCompleted(g.name, passed = false, Instant.now())))
+    }
+
+    inputValidationResult.flatMap { validatedMessage =>
       // Validate state and continue
       val stateResult: Result[AgentState] = previousState.status match {
         case AgentStatus.Complete | AgentStatus.Failed(_) =>
@@ -1440,7 +1465,7 @@ class Agent(client: LLMClient) {
           runWithEventsInternal(
             stateToRun,
             onEvent,
-            maxSteps.getOrElse(10),
+            maxSteps,
             0,
             startTime,
             traceLogPath,
@@ -1460,12 +1485,21 @@ class Agent(client: LLMClient) {
         // Emit output guardrail events
         outputGuardrails.foreach(g => onEvent(AgentEvent.OutputGuardrailStarted(g.name, Instant.now())))
 
-        validateOutput(finalState, outputGuardrails).map { validatedState =>
-          outputGuardrails.foreach { g =>
-            onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = true, Instant.now()))
-          }
-          validatedState
+        val outputValidationResult = validateOutput(finalState, outputGuardrails)
+
+        // Emit output guardrail completion events based on validation result
+        outputValidationResult match {
+          case Right(_) =>
+            outputGuardrails.foreach { g =>
+              onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = true, Instant.now()))
+            }
+          case Left(_) =>
+            outputGuardrails.foreach { g =>
+              onEvent(AgentEvent.OutputGuardrailCompleted(g.name, passed = false, Instant.now()))
+            }
         }
+
+        outputValidationResult
       }
     }
   }

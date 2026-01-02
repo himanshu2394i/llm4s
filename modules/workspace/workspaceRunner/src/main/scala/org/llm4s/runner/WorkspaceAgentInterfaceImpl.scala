@@ -2,7 +2,7 @@ package org.llm4s.runner
 
 import org.llm4s.shared._
 
-import java.io.{ BufferedWriter, FileWriter, PrintWriter }
+import java.io.{ BufferedWriter, PrintWriter }
 import java.nio.charset.StandardCharsets
 import java.nio.file.{ Files, Path, Paths, StandardOpenOption }
 import java.time.Instant
@@ -89,10 +89,13 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String, isWindows: Boolean) ext
     // Simple glob matching implementation
     // In a real implementation, use a proper glob library
     excludePatterns.exists { pattern =>
+      // Use a placeholder to avoid corrupting ** when replacing *
+      val placeholder = "\u0000DOUBLESTAR\u0000"
       val regex = pattern
-        .replace(".", "\\.")
-        .replace("**", ".*") // allow zero or more segments
-        .replace("*", "[^/]+")
+        .replace("**", placeholder) // protect ** first
+        .replace(".", "\\.")        // escape dots
+        .replace("*", "[^/]+")      // single * matches path segment chars
+        .replace(placeholder, ".*") // restore ** as .* to match any path
 
       path.matches(regex)
     }
@@ -131,14 +134,17 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String, isWindows: Boolean) ext
 
     val stream = if (isRecursive) Files.walk(resolvedPath, depth) else Files.list(resolvedPath)
     Using(stream) { s =>
-      val allFiles = s.iterator().asScala.toList
-
-      val filteredFiles = allFiles
+      // Use lazy evaluation: filter and limit on the iterator before materializing to a list
+      // This prevents loading the entire directory tree into memory for large repos
+      val filteredFiles = s
+        .iterator()
+        .asScala
         .filterNot { p =>
           val relativePath = rootPath.relativize(p).toString
           isExcluded(relativePath, patterns)
         }
         .take(defaultLimits.maxDirectoryEntries + 1)
+        .toList
 
       val isTruncated = filteredFiles.size > defaultLimits.maxDirectoryEntries
       val files = filteredFiles.take(defaultLimits.maxDirectoryEntries).map { p =>
@@ -198,7 +204,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String, isWindows: Boolean) ext
 
     val metadata = createFileMetadata(resolvedPath)
 
-    Using(Source.fromFile(resolvedPath.toFile)) { source =>
+    Using(Source.fromFile(resolvedPath.toFile, StandardCharsets.UTF_8.name())) { source =>
       val lines      = source.getLines().toList
       val totalLines = lines.size
 
@@ -320,7 +326,7 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String, isWindows: Boolean) ext
     }
 
     // Read the file content
-    val lines = Using(Source.fromFile(resolvedPath.toFile))(_.getLines().toList) match {
+    val lines = Using(Source.fromFile(resolvedPath.toFile, StandardCharsets.UTF_8.name()))(_.getLines().toList) match {
       case Success(fileLines) => fileLines
       case Failure(e) =>
         throw new WorkspaceAgentException(
@@ -333,10 +339,17 @@ class WorkspaceAgentInterfaceImpl(workspaceRoot: String, isWindows: Boolean) ext
     // Apply operations
     val modifiedLines = applyOperations(lines, operations)
 
-    // Write back to file
-    Using(new PrintWriter(new BufferedWriter(new FileWriter(resolvedPath.toFile)))) { writer =>
-      modifiedLines.foreach(writer.println)
-    } match {
+    // Write back to file using UTF-8 encoding
+    Using(
+      new PrintWriter(
+        new BufferedWriter(
+          new java.io.OutputStreamWriter(
+            new java.io.FileOutputStream(resolvedPath.toFile),
+            StandardCharsets.UTF_8
+          )
+        )
+      )
+    )(writer => modifiedLines.foreach(writer.println)) match {
       case Success(_) =>
         ModifyFileResponse(
           commandId = "local",
