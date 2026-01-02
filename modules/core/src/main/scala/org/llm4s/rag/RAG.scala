@@ -7,6 +7,7 @@ import org.llm4s.llmconnect.config.{ EmbeddingModelConfig, EmbeddingProviderConf
 import org.llm4s.llmconnect.extractors.UniversalExtractor
 import org.llm4s.llmconnect.model._
 import org.llm4s.rag.loader._
+import org.llm4s.rag.permissions._
 import org.llm4s.reranker.{ RerankProviderConfig, Reranker, RerankerFactory }
 import org.llm4s.trace.Tracing
 import org.llm4s.types.Result
@@ -616,6 +617,161 @@ final class RAG private (
           answer        <- generateAnswer(client, question, searchResults)
         } yield answer
     }
+
+  // ========== Permission-Aware API ==========
+
+  /** Access the permission-based search index (if configured) */
+  def searchIndex: Option[SearchIndex] = config.searchIndex
+
+  /** Check if permission-based search is available */
+  def hasPermissions: Boolean = config.searchIndex.isDefined
+
+  /**
+   * Search with permission filtering.
+   *
+   * Requires a SearchIndex to be configured via .withSearchIndex().
+   * Results are filtered based on user authorization:
+   * - Collection-level: Only search collections the user can access
+   * - Document-level: Only return documents the user can read
+   *
+   * @param auth User authorization context with principal IDs
+   * @param collectionPattern Pattern to filter collections (e.g., "confluence" for all descendants)
+   * @param queryText The search query
+   * @param topK Maximum number of results (defaults to config.topK)
+   * @return Permission-filtered search results
+   */
+  def queryWithPermissions(
+    auth: UserAuthorization,
+    collectionPattern: CollectionPattern,
+    queryText: String,
+    topK: Option[Int] = None
+  ): Result[Seq[RAGSearchResult]] =
+    config.searchIndex match {
+      case None =>
+        Left(
+          ConfigurationError(
+            "SearchIndex required for permission-aware queries. Use .withSearchIndex(index) when building RAG."
+          )
+        )
+      case Some(index) =>
+        for {
+          queryEmbedding <- embedQuery(queryText)
+          results <- index.query(
+            auth = auth,
+            collectionPattern = collectionPattern,
+            queryVector = queryEmbedding,
+            topK = topK.getOrElse(config.topK)
+          )
+        } yield results.map(scoredRecordToSearchResult)
+    }
+
+  /**
+   * Search with permissions and generate an answer using LLM.
+   *
+   * Requires both a SearchIndex and LLM client to be configured.
+   *
+   * @param auth User authorization context
+   * @param collectionPattern Pattern to filter collections
+   * @param question The question to answer
+   * @param topK Maximum number of results
+   * @return Answer with permission-filtered supporting contexts
+   */
+  def queryWithPermissionsAndAnswer(
+    auth: UserAuthorization,
+    collectionPattern: CollectionPattern,
+    question: String,
+    topK: Option[Int] = None
+  ): Result[RAGAnswerResult] =
+    llmClient match {
+      case None =>
+        Left(
+          ConfigurationError(
+            "LLM client required for answer generation. Use .withLLM(client) when building RAG."
+          )
+        )
+      case Some(client) =>
+        for {
+          searchResults <- queryWithPermissions(auth, collectionPattern, question, topK)
+          answer        <- generateAnswer(client, question, searchResults)
+        } yield answer
+    }
+
+  /**
+   * Ingest a document into a specific collection with permission control.
+   *
+   * Requires a SearchIndex to be configured via .withSearchIndex().
+   *
+   * @param collectionPath Target collection (must be a leaf collection)
+   * @param documentId Unique document identifier
+   * @param content Document text content
+   * @param metadata Additional document metadata
+   * @param readableBy Principal IDs that can read this document (empty = inherit from collection)
+   * @return Number of chunks indexed
+   */
+  def ingestWithPermissions(
+    collectionPath: CollectionPath,
+    documentId: String,
+    content: String,
+    metadata: Map[String, String] = Map.empty,
+    readableBy: Set[PrincipalId] = Set.empty
+  ): Result[Int] =
+    config.searchIndex match {
+      case None =>
+        Left(
+          ConfigurationError(
+            "SearchIndex required for permission-aware ingestion. Use .withSearchIndex(index) when building RAG."
+          )
+        )
+      case Some(index) =>
+        val docChunks = chunker.chunk(content, config.chunkingConfig)
+        for {
+          embeddings <- embedBatch(docChunks.map(_.content))
+          chunksWithEmbeddings = docChunks.zip(embeddings).map { case (chunk, embedding) =>
+            ChunkWithEmbedding(
+              content = chunk.content,
+              embedding = embedding,
+              chunkIndex = chunk.index,
+              metadata = metadata
+            )
+          }
+          count <- index.ingest(
+            collectionPath = collectionPath,
+            documentId = documentId,
+            chunks = chunksWithEmbeddings,
+            metadata = metadata,
+            readableBy = readableBy
+          )
+        } yield count
+    }
+
+  /**
+   * Delete a document from a collection.
+   *
+   * @param collectionPath The collection containing the document
+   * @param documentId The document identifier
+   * @return Number of chunks deleted
+   */
+  def deleteFromCollection(collectionPath: CollectionPath, documentId: String): Result[Long] =
+    config.searchIndex match {
+      case None =>
+        Left(
+          ConfigurationError(
+            "SearchIndex required for permission-aware deletion. Use .withSearchIndex(index) when building RAG."
+          )
+        )
+      case Some(index) =>
+        index.deleteDocument(collectionPath, documentId)
+    }
+
+  private def scoredRecordToSearchResult(sr: ScoredRecord): RAGSearchResult =
+    RAGSearchResult(
+      id = sr.record.id,
+      content = sr.record.content.getOrElse(""),
+      score = sr.score,
+      metadata = sr.record.metadata,
+      vectorScore = Some(sr.score),
+      keywordScore = None
+    )
 
   // ========== Statistics API ==========
 

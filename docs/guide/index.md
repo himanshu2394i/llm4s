@@ -24,6 +24,12 @@ Comprehensive guides for LLM4S features.
   - **Benchmarking Harness**: Compare chunking, fusion, and embedding strategies
   - **Optimization Workflow**: Data-driven RAG improvement
 
+- **[Permission-Based RAG](permission-based-rag)** - Enterprise access control for RAG
+  - **Hierarchical Collections**: Organize documents by tenant, team, or project
+  - **Two-Level Permissions**: Collection-level `queryableBy` + document-level `readableBy`
+  - **Pattern Queries**: `*`, `path/*`, `path/**` for flexible collection scoping
+  - **Principal Management**: Map users/groups to efficient integer IDs
+
 ### Multimodal Capabilities
 
 - **[Image Generation](image-generation)** - Generate images with DALL-E and other providers

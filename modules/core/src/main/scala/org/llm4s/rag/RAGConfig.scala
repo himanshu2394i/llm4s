@@ -3,6 +3,7 @@ package org.llm4s.rag
 import org.llm4s.chunking.{ ChunkerFactory, ChunkingConfig }
 import org.llm4s.llmconnect.LLMClient
 import org.llm4s.rag.loader.{ DirectoryLoader, DocumentLoader, LoadingConfig }
+import org.llm4s.rag.permissions.SearchIndex
 import org.llm4s.trace.Tracing
 import org.llm4s.vectorstore.FusionStrategy
 
@@ -61,7 +62,9 @@ final case class RAGConfig(
   tracer: Option[Tracing] = None,
   // Document loading
   documentLoaders: Seq[DocumentLoader] = Seq.empty,
-  loadingConfig: LoadingConfig = LoadingConfig.default
+  loadingConfig: LoadingConfig = LoadingConfig.default,
+  // Permission-based search index (for enterprise RAG)
+  searchIndex: Option[SearchIndex] = None
 ) {
 
   // ========== Embedding Configuration ==========
@@ -259,6 +262,60 @@ final case class RAGConfig(
    */
   def withBatchSize(n: Int): RAGConfig =
     copy(loadingConfig = loadingConfig.copy(batchSize = n))
+
+  // ========== Permission-Based Search Configuration ==========
+
+  /**
+   * Configure a SearchIndex for permission-based RAG.
+   *
+   * When a SearchIndex is configured, you can use permission-aware
+   * query and ingest methods on the RAG instance.
+   *
+   * @param index The SearchIndex instance (e.g., PgSearchIndex)
+   */
+  def withSearchIndex(index: SearchIndex): RAGConfig =
+    copy(searchIndex = Some(index))
+
+  /**
+   * Configure PostgreSQL connection for pgvector storage.
+   *
+   * Note: This does NOT create a SearchIndex with permissions.
+   * For permission-based RAG, you need to:
+   * 1. Create a PgSearchIndex manually
+   * 2. Call .withSearchIndex(index) on the config
+   *
+   * Example:
+   * {{{
+   * for {
+   *   searchIndex <- PgSearchIndex.fromJdbcUrl(jdbcUrl, user, password)
+   *   _           <- searchIndex.initializeSchema()
+   *   rag <- RAG.builder()
+   *     .withEmbeddings(EmbeddingProvider.OpenAI)
+   *     .withSearchIndex(searchIndex)
+   *     .build()
+   * } yield rag
+   * }}}
+   *
+   * @param connectionString JDBC connection string
+   * @param user Database user
+   * @param password Database password
+   * @param vectorTableName Name of the vectors table
+   */
+  def withPgVectorPermissions(
+    connectionString: String,
+    user: String,
+    password: String,
+    vectorTableName: String = "vectors"
+  ): RAGConfig =
+    copy(
+      pgVectorConnectionString = Some(connectionString),
+      pgVectorUser = Some(user),
+      pgVectorPassword = Some(password),
+      pgVectorTableName = Some(vectorTableName)
+    )
+
+  /** Check if permission-based search is enabled */
+  def hasPermissions: Boolean = searchIndex.isDefined
 }
 
 object RAGConfig {
