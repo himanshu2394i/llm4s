@@ -2,8 +2,69 @@ package org.llm4s.rag.loader
 
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import org.scalatest.BeforeAndAfterAll
 
-class DocumentLoaderSpec extends AnyFlatSpec with Matchers {
+import java.io.File
+import java.nio.file.{ Files, Path }
+
+class DocumentLoaderSpec extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
+
+  // Create a temporary directory structure for testing
+  private var tempDir: Path          = _
+  private var tempTextFile: File     = _
+  private var tempMarkdownFile: File = _
+  private var tempScalaFile: File    = _
+  private var tempSubDir: File       = _
+  private var tempSubDirFile: File   = _
+  private var tempDeepDir: File      = _
+  private var tempDeepFile: File     = _
+
+  override def beforeAll(): Unit = {
+    super.beforeAll()
+
+    // Create temp directory structure
+    tempDir = Files.createTempDirectory("document-loader-test")
+
+    // Create text file
+    tempTextFile = new File(tempDir.toFile, "test.txt")
+    Files.write(tempTextFile.toPath, "Hello World".getBytes)
+
+    // Create markdown file
+    tempMarkdownFile = new File(tempDir.toFile, "readme.md")
+    Files.write(tempMarkdownFile.toPath, "# Title\n\nSome markdown content".getBytes)
+
+    // Create scala file
+    tempScalaFile = new File(tempDir.toFile, "Example.scala")
+    Files.write(tempScalaFile.toPath, "object Example { val x = 1 }".getBytes)
+
+    // Create subdirectory with file
+    tempSubDir = new File(tempDir.toFile, "subdir")
+    tempSubDir.mkdir()
+    tempSubDirFile = new File(tempSubDir, "nested.txt")
+    Files.write(tempSubDirFile.toPath, "Nested content".getBytes)
+
+    // Create deep nested directory
+    tempDeepDir = new File(tempSubDir, "deep")
+    tempDeepDir.mkdir()
+    tempDeepFile = new File(tempDeepDir, "deep.txt")
+    Files.write(tempDeepFile.toPath, "Deep content".getBytes)
+  }
+
+  override def afterAll(): Unit = {
+    // Clean up temp files
+    def deleteRecursively(file: File): Unit = {
+      if (file.isDirectory) {
+        Option(file.listFiles()).foreach(_.foreach(deleteRecursively))
+      }
+      file.delete()
+    }
+
+    if (tempDir != null) {
+      deleteRecursively(tempDir.toFile)
+    }
+
+    super.afterAll()
+  }
 
   // ========== Document Tests ==========
 
@@ -108,6 +169,104 @@ class DocumentLoaderSpec extends AnyFlatSpec with Matchers {
 
     (results should have).length(1)
     results.head shouldBe a[LoadResult.Failure]
+    results.head.asInstanceOf[LoadResult.Failure].error.message should include("not found")
+  }
+
+  it should "fail when path is a directory" in {
+    val loader  = FileLoader(tempDir.toString)
+    val results = loader.load().toList
+
+    (results should have).length(1)
+    results.head shouldBe a[LoadResult.Failure]
+    results.head.asInstanceOf[LoadResult.Failure].error.message should include("Not a file")
+  }
+
+  it should "successfully load a text file" in {
+    val loader  = FileLoader(tempTextFile.toPath)
+    val results = loader.load().toList
+
+    (results should have).length(1)
+    results.head shouldBe a[LoadResult.Success]
+
+    val doc = results.head.asInstanceOf[LoadResult.Success].document
+    doc.content shouldBe "Hello World"
+    (doc.metadata should contain).key("source")
+    (doc.metadata should contain).key("path")
+    (doc.metadata should contain).key("extension")
+    (doc.metadata should contain).key("lastModified")
+    (doc.metadata should contain).key("size")
+    doc.metadata("extension") shouldBe "txt"
+  }
+
+  it should "detect prose hints for text files" in {
+    val loader  = FileLoader(tempTextFile.toPath)
+    val results = loader.load().toList
+
+    val doc = results.head.asInstanceOf[LoadResult.Success].document
+    doc.hints shouldBe defined
+    doc.hints.get shouldBe DocumentHints.prose
+  }
+
+  it should "detect markdown hints for .md files" in {
+    val loader  = FileLoader(tempMarkdownFile.toPath)
+    val results = loader.load().toList
+
+    val doc = results.head.asInstanceOf[LoadResult.Success].document
+    doc.hints shouldBe defined
+    doc.hints.get shouldBe DocumentHints.markdown
+  }
+
+  it should "detect code hints for .scala files" in {
+    val loader  = FileLoader(tempScalaFile.toPath)
+    val results = loader.load().toList
+
+    val doc = results.head.asInstanceOf[LoadResult.Success].document
+    doc.hints shouldBe defined
+    doc.hints.get shouldBe DocumentHints.code
+  }
+
+  it should "include version information" in {
+    val loader  = FileLoader(tempTextFile.toPath)
+    val results = loader.load().toList
+
+    val doc = results.head.asInstanceOf[LoadResult.Success].document
+    doc.version shouldBe defined
+    doc.version.get.contentHash should not be empty
+    doc.version.get.timestamp shouldBe defined
+  }
+
+  it should "attach custom metadata" in {
+    val loader  = FileLoader(tempTextFile.toPath, Map("custom" -> "value"))
+    val results = loader.load().toList
+
+    val doc = results.head.asInstanceOf[LoadResult.Success].document
+    doc.metadata should contain("custom" -> "value")
+  }
+
+  it should "have estimatedCount of 1" in {
+    val loader = FileLoader(tempTextFile.toPath)
+    loader.estimatedCount shouldBe Some(1)
+  }
+
+  it should "provide description" in {
+    val loader = FileLoader(tempTextFile.toPath)
+    loader.description should include("FileLoader")
+    loader.description should include(tempTextFile.getPath)
+  }
+
+  "FileLoader companion object" should "create from string path" in {
+    val loader = FileLoader(tempTextFile.getAbsolutePath)
+    loader.path shouldBe tempTextFile.toPath
+  }
+
+  it should "create from string path with metadata" in {
+    val loader = FileLoader(tempTextFile.getAbsolutePath, Map("key" -> "value"))
+    loader.metadata should contain("key" -> "value")
+  }
+
+  it should "create from File object" in {
+    val loader = FileLoader(tempTextFile)
+    loader.path shouldBe tempTextFile.toPath
   }
 
   // ========== DirectoryLoader Tests ==========
@@ -118,15 +277,157 @@ class DocumentLoaderSpec extends AnyFlatSpec with Matchers {
 
     (results should have).length(1)
     results.head shouldBe a[LoadResult.Failure]
+    results.head.asInstanceOf[LoadResult.Failure].error.message should include("not found")
+  }
+
+  it should "fail when path is a file" in {
+    val loader  = DirectoryLoader(tempTextFile.toPath)
+    val results = loader.load().toList
+
+    (results should have).length(1)
+    results.head shouldBe a[LoadResult.Failure]
+    results.head.asInstanceOf[LoadResult.Failure].error.message should include("Not a directory")
+  }
+
+  it should "load files from directory" in {
+    val loader  = DirectoryLoader(tempDir).withExtensions(Set("txt", "md", "scala"))
+    val results = loader.load().toList
+
+    // Should have files from dir and subdirs (recursive by default)
+    results.size should be >= 3
+    results.forall(_.isSuccess) shouldBe true
   }
 
   it should "filter by extensions" in {
-    val loader = DirectoryLoader("./")
-      .withExtensions(Set(".scala", ".md"))
+    val loader = DirectoryLoader(tempDir)
+      .withExtensions(Set("txt"))
 
-    // Just verify it doesn't throw
-    loader.extensions should contain("scala")
+    val results = loader.load().toList.collect { case LoadResult.Success(d) => d }
+
+    // Only .txt files
+    results.forall(_.metadata.get("extension").contains("txt")) shouldBe true
+  }
+
+  it should "add extension with withExtension" in {
+    val loader = DirectoryLoader(tempDir)
+      .withExtensions(Set("txt"))
+      .withExtension("md")
+
+    loader.extensions should contain("txt")
     loader.extensions should contain("md")
+  }
+
+  it should "strip dot from extensions" in {
+    val loader = DirectoryLoader(tempDir)
+      .withExtensions(Set(".txt", ".md"))
+
+    loader.extensions should contain("txt")
+    loader.extensions should contain("md")
+    loader.extensions should not contain ".txt"
+    loader.extensions should not contain ".md"
+  }
+
+  it should "load non-recursively when recursive is false" in {
+    val recursiveLoader    = DirectoryLoader(tempDir).withExtensions(Set("txt"))
+    val nonRecursiveLoader = DirectoryLoader(tempDir).withExtensions(Set("txt")).withRecursive(false)
+
+    val recursiveResults    = recursiveLoader.load().toList
+    val nonRecursiveResults = nonRecursiveLoader.load().toList
+
+    // Non-recursive should have fewer results
+    nonRecursiveResults.size should be < recursiveResults.size
+  }
+
+  it should "respect maxDepth" in {
+    val shallowLoader = DirectoryLoader(tempDir).withExtensions(Set("txt")).withMaxDepth(0)
+    val deepLoader    = DirectoryLoader(tempDir).withExtensions(Set("txt")).withMaxDepth(10)
+
+    val shallowResults = shallowLoader.load().toList
+    val deepResults    = deepLoader.load().toList
+
+    // Shallow should have fewer results
+    shallowResults.size should be < deepResults.size
+  }
+
+  it should "attach metadata to all documents" in {
+    val loader =
+      DirectoryLoader(tempDir).withExtensions(Set("txt")).withMetadata(Map("custom" -> "value"))
+
+    val results = loader.load().toList.collect { case LoadResult.Success(d) => d }
+
+    results.foreach { doc =>
+      doc.metadata should contain("custom" -> "value")
+      (doc.metadata should contain).key("directory")
+    }
+  }
+
+  it should "provide estimated count" in {
+    val loader = DirectoryLoader(tempDir).withExtensions(Set("txt", "md", "scala"))
+    loader.estimatedCount shouldBe defined
+    loader.estimatedCount.get should be >= 1
+  }
+
+  it should "return None for estimated count on non-existent directory" in {
+    val loader = DirectoryLoader("/nonexistent/directory")
+    loader.estimatedCount shouldBe None
+  }
+
+  it should "provide description" in {
+    val loader = DirectoryLoader(tempDir).withExtensions(Set("txt", "md"))
+    loader.description should include("DirectoryLoader")
+    loader.description should include("txt")
+    loader.description should include("md")
+  }
+
+  "DirectoryLoader companion object" should "create from string path" in {
+    val loader = DirectoryLoader(tempDir.toString)
+    loader.path shouldBe tempDir
+  }
+
+  it should "create from string path with extensions" in {
+    val loader = DirectoryLoader(tempDir.toString, Set("txt", "md"))
+    loader.extensions shouldBe Set("txt", "md")
+  }
+
+  it should "create from File object" in {
+    val loader = DirectoryLoader(tempDir.toFile)
+    loader.path shouldBe tempDir
+  }
+
+  it should "have default extensions" in {
+    DirectoryLoader.defaultExtensions should contain("txt")
+    DirectoryLoader.defaultExtensions should contain("md")
+    DirectoryLoader.defaultExtensions should contain("pdf")
+    DirectoryLoader.defaultExtensions should contain("docx")
+  }
+
+  "DirectoryLoader.markdown" should "only load markdown files" in {
+    val loader = DirectoryLoader.markdown(tempDir.toString)
+    loader.extensions shouldBe Set("md", "markdown")
+  }
+
+  "DirectoryLoader.code" should "load code files" in {
+    val loader = DirectoryLoader.code(tempDir.toString)
+    loader.extensions should contain("scala")
+    loader.extensions should contain("java")
+    loader.extensions should contain("py")
+    loader.extensions should contain("js")
+    loader.extensions should contain("ts")
+  }
+
+  "DirectoryLoader.text" should "only load text files" in {
+    val loader = DirectoryLoader.text(tempDir.toString)
+    loader.extensions shouldBe Set("txt")
+  }
+
+  "DirectoryLoader.pdf" should "only load PDF files" in {
+    val loader = DirectoryLoader.pdf(tempDir.toString)
+    loader.extensions shouldBe Set("pdf")
+  }
+
+  "DirectoryLoader.docx" should "only load Word documents" in {
+    val loader = DirectoryLoader.docx(tempDir.toString)
+    loader.extensions shouldBe Set("docx")
   }
 
   // ========== DocumentLoaders Combinators Tests ==========

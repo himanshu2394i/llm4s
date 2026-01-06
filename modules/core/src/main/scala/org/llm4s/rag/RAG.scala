@@ -987,6 +987,17 @@ object RAG {
   ): Result[RAG] =
     build(config, None, resolveEmbeddingProvider, resolveRerankerConfig)
 
+  /**
+   * Package-private build method for testing with injected embedding client.
+   * This allows tests to use mock embedding providers without needing real HTTP services.
+   */
+  private[rag] def buildWithClient(
+    config: RAGConfig,
+    embeddingClient: EmbeddingClient,
+    resolveRerankerConfig: () => Result[Option[RerankProviderConfig]] = () => Right(None)
+  ): Result[RAG] =
+    build(config, Some(embeddingClient), _ => Right(EmbeddingProviderConfig("", "", "")), resolveRerankerConfig)
+
   private def build(
     config: RAGConfig,
     existingClient: Option[EmbeddingClient],

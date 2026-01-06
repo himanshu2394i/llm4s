@@ -390,4 +390,266 @@ class PermissionTypesSpec extends AnyFlatSpec with Matchers {
   "CollectionPattern.AllDescendants.patternString" should "return path/**" in {
     CollectionPattern.AllDescendants(CollectionPath.unsafe("prefix")).patternString shouldBe "prefix/**"
   }
+
+  // ==========================================================================
+  // Collection tests
+  // ==========================================================================
+
+  "Collection" should "report isPublic correctly" in {
+    val publicCollection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("test"),
+      parentPath = None,
+      queryableBy = Set.empty,
+      isLeaf = true
+    )
+    publicCollection.isPublic shouldBe true
+
+    val restrictedCollection = Collection(
+      id = 2,
+      path = CollectionPath.unsafe("restricted"),
+      parentPath = None,
+      queryableBy = Set(PrincipalId(1)),
+      isLeaf = true
+    )
+    restrictedCollection.isPublic shouldBe false
+  }
+
+  it should "report isRoot correctly" in {
+    val rootCollection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("root"),
+      parentPath = None,
+      queryableBy = Set.empty,
+      isLeaf = true
+    )
+    rootCollection.isRoot shouldBe true
+
+    val childCollection = Collection(
+      id = 2,
+      path = CollectionPath.unsafe("root/child"),
+      parentPath = Some(CollectionPath.unsafe("root")),
+      queryableBy = Set.empty,
+      isLeaf = true
+    )
+    childCollection.isRoot shouldBe false
+  }
+
+  it should "return correct name" in {
+    val collection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("parent/child/grandchild"),
+      parentPath = Some(CollectionPath.unsafe("parent/child")),
+      queryableBy = Set.empty,
+      isLeaf = true
+    )
+    collection.name shouldBe "grandchild"
+  }
+
+  it should "return correct depth" in {
+    val rootCollection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("root"),
+      parentPath = None,
+      queryableBy = Set.empty,
+      isLeaf = true
+    )
+    rootCollection.depth shouldBe 1
+
+    val deepCollection = Collection(
+      id = 2,
+      path = CollectionPath.unsafe("a/b/c"),
+      parentPath = Some(CollectionPath.unsafe("a/b")),
+      queryableBy = Set.empty,
+      isLeaf = true
+    )
+    deepCollection.depth shouldBe 3
+  }
+
+  it should "allow query for public collections" in {
+    val publicCollection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("public"),
+      parentPath = None,
+      queryableBy = Set.empty,
+      isLeaf = true
+    )
+    publicCollection.canQuery(UserAuthorization.Anonymous) shouldBe true
+    publicCollection.canQuery(UserAuthorization(Set(PrincipalId(1)))) shouldBe true
+    publicCollection.canQuery(UserAuthorization.Admin) shouldBe true
+  }
+
+  it should "allow query for admin on restricted collections" in {
+    val restrictedCollection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("restricted"),
+      parentPath = None,
+      queryableBy = Set(PrincipalId(1), PrincipalId(2)),
+      isLeaf = true
+    )
+    restrictedCollection.canQuery(UserAuthorization.Admin) shouldBe true
+  }
+
+  it should "allow query for authorized users on restricted collections" in {
+    val restrictedCollection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("restricted"),
+      parentPath = None,
+      queryableBy = Set(PrincipalId(1), PrincipalId(2)),
+      isLeaf = true
+    )
+    restrictedCollection.canQuery(UserAuthorization(Set(PrincipalId(1)))) shouldBe true
+    restrictedCollection.canQuery(UserAuthorization(Set(PrincipalId(2)))) shouldBe true
+    restrictedCollection.canQuery(UserAuthorization(Set(PrincipalId(1), PrincipalId(3)))) shouldBe true
+  }
+
+  it should "deny query for unauthorized users on restricted collections" in {
+    val restrictedCollection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("restricted"),
+      parentPath = None,
+      queryableBy = Set(PrincipalId(1), PrincipalId(2)),
+      isLeaf = true
+    )
+    restrictedCollection.canQuery(UserAuthorization.Anonymous) shouldBe false
+    restrictedCollection.canQuery(UserAuthorization(Set(PrincipalId(3)))) shouldBe false
+  }
+
+  it should "support metadata" in {
+    val collection = Collection(
+      id = 1,
+      path = CollectionPath.unsafe("test"),
+      parentPath = None,
+      queryableBy = Set.empty,
+      isLeaf = true,
+      metadata = Map("key1" -> "value1", "key2" -> "value2")
+    )
+    collection.metadata shouldBe Map("key1" -> "value1", "key2" -> "value2")
+  }
+
+  // ==========================================================================
+  // CollectionConfig tests
+  // ==========================================================================
+
+  "CollectionConfig" should "report isPublic correctly" in {
+    val publicConfig = CollectionConfig(CollectionPath.unsafe("test"))
+    publicConfig.isPublic shouldBe true
+
+    val restrictedConfig = CollectionConfig(
+      CollectionPath.unsafe("test"),
+      queryableBy = Set(PrincipalId(1))
+    )
+    restrictedConfig.isPublic shouldBe false
+  }
+
+  it should "compute parentPath correctly" in {
+    val rootConfig = CollectionConfig(CollectionPath.unsafe("root"))
+    rootConfig.parentPath shouldBe None
+
+    val childConfig = CollectionConfig(CollectionPath.unsafe("parent/child"))
+    childConfig.parentPath shouldBe Some(CollectionPath.unsafe("parent"))
+
+    val deepConfig = CollectionConfig(CollectionPath.unsafe("a/b/c"))
+    deepConfig.parentPath shouldBe Some(CollectionPath.unsafe("a/b"))
+  }
+
+  it should "add single principal with withQueryableBy" in {
+    val config  = CollectionConfig(CollectionPath.unsafe("test"))
+    val updated = config.withQueryableBy(PrincipalId(1))
+
+    updated.queryableBy shouldBe Set(PrincipalId(1))
+    updated.isPublic shouldBe false
+  }
+
+  it should "add multiple principals with withQueryableBy" in {
+    val config  = CollectionConfig(CollectionPath.unsafe("test"))
+    val updated = config.withQueryableBy(Set(PrincipalId(1), PrincipalId(2)))
+
+    updated.queryableBy shouldBe Set(PrincipalId(1), PrincipalId(2))
+  }
+
+  it should "accumulate principals across multiple withQueryableBy calls" in {
+    val config = CollectionConfig(CollectionPath.unsafe("test"))
+      .withQueryableBy(PrincipalId(1))
+      .withQueryableBy(Set(PrincipalId(2), PrincipalId(3)))
+
+    config.queryableBy shouldBe Set(PrincipalId(1), PrincipalId(2), PrincipalId(3))
+  }
+
+  it should "convert to leaf with asLeaf" in {
+    val config = CollectionConfig(CollectionPath.unsafe("test"), isLeaf = false)
+    config.isLeaf shouldBe false
+
+    val leafConfig = config.asLeaf
+    leafConfig.isLeaf shouldBe true
+  }
+
+  it should "convert to parent with asParent" in {
+    val config = CollectionConfig(CollectionPath.unsafe("test"), isLeaf = true)
+    config.isLeaf shouldBe true
+
+    val parentConfig = config.asParent
+    parentConfig.isLeaf shouldBe false
+  }
+
+  it should "add single metadata entry with withMetadata" in {
+    val config  = CollectionConfig(CollectionPath.unsafe("test"))
+    val updated = config.withMetadata("key", "value")
+
+    updated.metadata shouldBe Map("key" -> "value")
+  }
+
+  it should "add multiple metadata entries with withMetadata" in {
+    val config  = CollectionConfig(CollectionPath.unsafe("test"))
+    val updated = config.withMetadata(Map("key1" -> "value1", "key2" -> "value2"))
+
+    updated.metadata shouldBe Map("key1" -> "value1", "key2" -> "value2")
+  }
+
+  it should "accumulate metadata across multiple withMetadata calls" in {
+    val config = CollectionConfig(CollectionPath.unsafe("test"))
+      .withMetadata("key1", "value1")
+      .withMetadata(Map("key2" -> "value2", "key3" -> "value3"))
+
+    config.metadata shouldBe Map("key1" -> "value1", "key2" -> "value2", "key3" -> "value3")
+  }
+
+  // ==========================================================================
+  // CollectionConfig companion object tests
+  // ==========================================================================
+
+  "CollectionConfig.publicLeaf" should "create a public leaf collection" in {
+    val config = CollectionConfig.publicLeaf(CollectionPath.unsafe("test"))
+
+    config.isPublic shouldBe true
+    config.isLeaf shouldBe true
+    config.queryableBy shouldBe Set.empty
+    config.metadata shouldBe Map.empty
+  }
+
+  "CollectionConfig.restrictedLeaf" should "create a restricted leaf collection" in {
+    val principals = Set(PrincipalId(1), PrincipalId(2))
+    val config     = CollectionConfig.restrictedLeaf(CollectionPath.unsafe("test"), principals)
+
+    config.isPublic shouldBe false
+    config.isLeaf shouldBe true
+    config.queryableBy shouldBe principals
+  }
+
+  "CollectionConfig.publicParent" should "create a public parent collection" in {
+    val config = CollectionConfig.publicParent(CollectionPath.unsafe("test"))
+
+    config.isPublic shouldBe true
+    config.isLeaf shouldBe false
+    config.queryableBy shouldBe Set.empty
+  }
+
+  "CollectionConfig.restrictedParent" should "create a restricted parent collection" in {
+    val principals = Set(PrincipalId(1), PrincipalId(-5))
+    val config     = CollectionConfig.restrictedParent(CollectionPath.unsafe("test"), principals)
+
+    config.isPublic shouldBe false
+    config.isLeaf shouldBe false
+    config.queryableBy shouldBe principals
+  }
 }

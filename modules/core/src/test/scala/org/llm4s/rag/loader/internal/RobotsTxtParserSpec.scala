@@ -168,4 +168,262 @@ class RobotsTxtParserSpec extends AnyFlatSpec with Matchers with BeforeAndAfterE
     )
     robots.isAllowed("/path") shouldBe true
   }
+
+  it should "handle empty disallow rule" in {
+    val robots = RobotsTxtParser.RobotsTxt(disallowRules = Seq(""))
+    robots.isAllowed("/any/path") shouldBe false // Empty rule matches everything
+  }
+
+  // ==========================================================================
+  // Wildcard pattern tests
+  // ==========================================================================
+
+  "RobotsTxtParser wildcard patterns" should "support * wildcard" in {
+    val content =
+      """User-agent: *
+        |Disallow: /admin/*.php
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+
+    robots.isAllowed("/admin/config.php") shouldBe false
+    robots.isAllowed("/admin/users.php") shouldBe false
+    robots.isAllowed("/admin/config.html") shouldBe true
+    robots.isAllowed("/public/test.php") shouldBe true
+  }
+
+  it should "support $ anchor for exact end matching" in {
+    val content =
+      """User-agent: *
+        |Disallow: /*.gif$
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+
+    robots.isAllowed("/image.gif") shouldBe false
+    robots.isAllowed("/path/image.gif") shouldBe false
+    robots.isAllowed("/image.gif.bak") shouldBe true // Not exact end
+    robots.isAllowed("/image.png") shouldBe true
+  }
+
+  it should "support * and $ together" in {
+    val content =
+      """User-agent: *
+        |Disallow: /secret*.html$
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+
+    robots.isAllowed("/secret.html") shouldBe false
+    robots.isAllowed("/secret-file.html") shouldBe false
+    robots.isAllowed("/secret-file.html.bak") shouldBe true
+  }
+
+  // ==========================================================================
+  // RobotsTxt.empty tests
+  // ==========================================================================
+
+  "RobotsTxt.empty" should "have no rules" in {
+    val emptyRobots = RobotsTxtParser.RobotsTxt.empty
+    emptyRobots.allowRules shouldBe Seq.empty
+    emptyRobots.disallowRules shouldBe Seq.empty
+    emptyRobots.crawlDelay shouldBe None
+  }
+
+  // ==========================================================================
+  // Parse edge cases
+  // ==========================================================================
+
+  "RobotsTxtParser.parse edge cases" should "handle crawl-delay with decimal value" in {
+    val content =
+      """User-agent: *
+        |Crawl-delay: 2.5
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+    robots.crawlDelay shouldBe Some(2) // Truncated to int
+  }
+
+  it should "handle invalid crawl-delay gracefully" in {
+    val content =
+      """User-agent: *
+        |Crawl-delay: invalid
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+    robots.crawlDelay shouldBe None
+  }
+
+  it should "handle multiple groups separated by blank lines" in {
+    val content =
+      """User-agent: BotA
+        |Disallow: /botA/
+        |
+        |User-agent: BotB
+        |Disallow: /botB/
+        |
+        |User-agent: *
+        |Disallow: /all/
+        |""".stripMargin
+
+    val robotsA = RobotsTxtParser.parse(content, "BotA/1.0")
+    val robotsB = RobotsTxtParser.parse(content, "BotB/1.0")
+    val robotsC = RobotsTxtParser.parse(content, "BotC/1.0")
+
+    robotsA.disallowRules should contain("/botA/")
+    robotsB.disallowRules should contain("/botB/")
+    robotsC.disallowRules should contain("/all/")
+  }
+
+  it should "handle empty value for user-agent" in {
+    val content =
+      """User-agent:
+        |Disallow: /test/
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+    // Empty user-agent should be ignored
+    robots.disallowRules shouldBe empty
+  }
+
+  it should "handle empty value for allow/disallow" in {
+    val content =
+      """User-agent: *
+        |Disallow:
+        |Allow:
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+    robots.disallowRules shouldBe empty
+    robots.allowRules shouldBe empty
+  }
+
+  it should "handle unknown directives gracefully" in {
+    val content =
+      """User-agent: *
+        |Disallow: /private/
+        |Sitemap: http://example.com/sitemap.xml
+        |Unknown-directive: value
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+    robots.disallowRules should contain("/private/")
+    robots.isAllowed("/private/page") shouldBe false
+  }
+
+  it should "handle malformed lines" in {
+    val content =
+      """User-agent: *
+        |This is not a directive
+        |Disallow: /private/
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "TestBot")
+    robots.disallowRules should contain("/private/")
+  }
+
+  it should "handle user-agent followed by directive then more user-agents" in {
+    val content =
+      """User-agent: BotA
+        |Disallow: /botA/
+        |User-agent: BotB
+        |Disallow: /botB/
+        |""".stripMargin
+
+    // After sawDirective, new user-agent should flush the group
+    val robotsA = RobotsTxtParser.parse(content, "BotA/1.0")
+    val robotsB = RobotsTxtParser.parse(content, "BotB/1.0")
+
+    robotsA.disallowRules should contain("/botA/")
+    robotsA.disallowRules should not contain "/botB/"
+    robotsB.disallowRules should contain("/botB/")
+  }
+
+  // ==========================================================================
+  // Caching tests
+  // ==========================================================================
+
+  "RobotsTxtParser.clearCache" should "clear the cache" in {
+    // This is mainly for coverage - we can't easily verify cache state
+    // but we can verify the method doesn't throw
+    RobotsTxtParser.clearCache()
+    // Success if no exception
+    succeed
+  }
+
+  // ==========================================================================
+  // getRules tests
+  // ==========================================================================
+
+  "RobotsTxtParser.getRules" should "return empty rules for invalid URL" in {
+    val rules = RobotsTxtParser.getRules("not-a-valid-url", "TestBot")
+    rules.allowRules shouldBe empty
+    rules.disallowRules shouldBe empty
+    rules.crawlDelay shouldBe None
+  }
+
+  it should "return empty rules for URL with no host" in {
+    val rules = RobotsTxtParser.getRules("file:///path/to/file", "TestBot")
+    // File URLs have no host
+    rules.allowRules shouldBe empty
+    rules.disallowRules shouldBe empty
+  }
+
+  // ==========================================================================
+  // isAllowed static method tests
+  // ==========================================================================
+
+  "RobotsTxtParser.isAllowed" should "return true for invalid URL" in {
+    val allowed = RobotsTxtParser.isAllowed("not-a-valid-url", "TestBot")
+    allowed shouldBe true // Allow on error
+  }
+
+  it should "return true for URL with no host" in {
+    val allowed = RobotsTxtParser.isAllowed("file:///path/to/file", "TestBot")
+    allowed shouldBe true // Allow on error
+  }
+
+  // ==========================================================================
+  // Rule selection tests
+  // ==========================================================================
+
+  "RobotsTxtParser rule selection" should "prefer exact user-agent match over prefix" in {
+    val content =
+      """User-agent: LLM4S
+        |Disallow: /exact/
+        |
+        |User-agent: LLM4S-Crawler
+        |Disallow: /prefix/
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "LLM4S-Crawler/1.0")
+    // "LLM4S-Crawler" is a longer prefix match than "LLM4S"
+    robots.disallowRules should contain("/prefix/")
+    robots.disallowRules should not contain "/exact/"
+  }
+
+  it should "select wildcard when no other match" in {
+    val content =
+      """User-agent: OtherBot
+        |Disallow: /other/
+        |
+        |User-agent: *
+        |Disallow: /wildcard/
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "UnknownBot/1.0")
+    robots.disallowRules should contain("/wildcard/")
+    robots.disallowRules should not contain "/other/"
+  }
+
+  it should "return empty when no matching groups" in {
+    val content =
+      """User-agent: OtherBot
+        |Disallow: /other/
+        |""".stripMargin
+
+    val robots = RobotsTxtParser.parse(content, "UnknownBot/1.0")
+    robots.disallowRules shouldBe empty
+    robots.allowRules shouldBe empty
+  }
 }
