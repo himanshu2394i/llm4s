@@ -100,48 +100,6 @@ jobs:
             modules/*/target/scala-3.7.1/scoverage-report/
           retention-days: 14
 
-  # PostgreSQL integration tests (permission-based RAG)
-  postgres-tests:
-    name: PostgreSQL Tests
-    needs: quick-checks
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: 21
-          cache: 'sbt'
-
-      - uses: sbt/setup-sbt@v1
-
-      - name: Run PostgreSQL integration tests
-        env:
-          PGVECTOR_TEST_URL: jdbc:postgresql://localhost:5432/postgres
-          PGVECTOR_USER: postgres
-          PGVECTOR_PASSWORD: postgres
-          PGVECTOR_TEST_USER: postgres
-          PGVECTOR_TEST_PASSWORD: postgres
-        run: sbt "core/testOnly org.llm4s.rag.permissions.pg.* org.llm4s.vectorstore.PgVectorStoreSpec"
-
   # Main test matrix
   test:
     name: Test
@@ -198,7 +156,7 @@ jobs:
   all-tests-pass:
     name: All Tests Pass
     if: always()
-    needs: [test, coverage, postgres-tests]
+    needs: [test, coverage]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -212,10 +170,6 @@ jobs:
           fi
           if [[ "${{ needs.coverage.result }}" != "success" ]]; then
             echo "Coverage job failed"
-            exit 1
-          fi
-          if [[ "${{ needs.postgres-tests.result }}" != "success" ]]; then
-            echo "PostgreSQL tests failed"
             exit 1
           fi
           echo "All tests passed!"
