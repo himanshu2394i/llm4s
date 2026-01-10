@@ -8,7 +8,7 @@ import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.config.{ AzureConfig, OpenAIConfig, ProviderConfig }
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.streaming._
-import org.llm4s.model.TransformationResult
+import org.llm4s.model.{ ModelRegistry, TransformationResult }
 import org.llm4s.toolapi.{ AzureToolHelper, ToolRegistry }
 import org.llm4s.types.Result
 
@@ -219,7 +219,18 @@ class OpenAIClient private (
 
     // Set options
     chatOptions.setTemperature(options.temperature.doubleValue())
-    options.maxTokens.foreach(mt => chatOptions.setMaxTokens(mt))
+    options.maxTokens.foreach { mt =>
+      // Check if model supports reasoning (requires max_completion_tokens)
+      // We check both the registry and common naming patterns for safety
+      val supportsReasoning = ModelRegistry.lookup(model).exists(_.supports("reasoning")) ||
+        model.startsWith("o1-") || model.startsWith("o3-") || model.contains("gpt-5")
+
+      if (supportsReasoning) {
+        chatOptions.setMaxCompletionTokens(mt)
+      } else {
+        chatOptions.setMaxTokens(mt)
+      }
+    }
     chatOptions.setPresencePenalty(options.presencePenalty.doubleValue())
     chatOptions.setFrequencyPenalty(options.frequencyPenalty.doubleValue())
     chatOptions.setTopP(options.topP.doubleValue())
