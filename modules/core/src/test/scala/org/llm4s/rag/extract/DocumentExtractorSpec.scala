@@ -168,6 +168,131 @@ class DocumentExtractorSpec extends AnyFlatSpec with Matchers {
 
     result.isRight shouldBe true
   }
+
+  // ========== Stream-based Extraction ==========
+
+  it should "extract text from InputStream" in {
+    val content  = "Hello from stream!".getBytes(StandardCharsets.UTF_8)
+    val stream   = new java.io.ByteArrayInputStream(content)
+    val filename = "test.txt"
+
+    val result = extractor.extractFromStream(stream, filename)
+
+    result.isRight shouldBe true
+    result.map(doc => doc.text shouldBe "Hello from stream!")
+  }
+
+  it should "extract UTF-8 content from InputStream" in {
+    val content  = "Bonjour le monde! 你好世界".getBytes(StandardCharsets.UTF_8)
+    val stream   = new java.io.ByteArrayInputStream(content)
+    val filename = "unicode.txt"
+
+    val result = extractor.extractFromStream(stream, filename)
+
+    result.isRight shouldBe true
+    result.map { doc =>
+      doc.text should include("Bonjour")
+      doc.text should include("你好世界")
+    }
+  }
+
+  it should "handle empty InputStream" in {
+    val stream   = new java.io.ByteArrayInputStream(Array.empty[Byte])
+    val filename = "empty.txt"
+
+    val result = extractor.extractFromStream(stream, filename)
+
+    result.isRight shouldBe true
+    result.map(doc => doc.text shouldBe "")
+  }
+
+  it should "use provided MIME type for stream extraction" in {
+    val content  = "plain text content".getBytes(StandardCharsets.UTF_8)
+    val stream   = new java.io.ByteArrayInputStream(content)
+    val filename = "unknown.xyz"
+
+    val result = extractor.extractFromStream(stream, filename, Some("text/plain"))
+
+    result.isRight shouldBe true
+    result.map(doc => doc.text shouldBe "plain text content")
+  }
+
+  // ========== HTML Extraction ==========
+
+  it should "extract text from HTML content" in {
+    val content  = "<html><body><h1>Title</h1><p>Paragraph text.</p></body></html>".getBytes(StandardCharsets.UTF_8)
+    val filename = "page.html"
+
+    val result = extractor.extract(content, filename)
+
+    result.isRight shouldBe true
+    result.map { doc =>
+      doc.text should include("Title")
+      doc.text should include("Paragraph")
+      doc.format shouldBe DocumentFormat.HTML
+    }
+  }
+
+  // ========== RST/Restructured Text ==========
+
+  it should "extract RST content as plain text" in {
+    val content =
+      """
+        |Title
+        |=====
+        |
+        |This is a paragraph.
+        |""".stripMargin.getBytes(StandardCharsets.UTF_8)
+    val filename = "readme.rst"
+
+    val result = extractor.extract(content, filename)
+
+    result.isRight shouldBe true
+    result.map { doc =>
+      doc.text should include("Title")
+      doc.text should include("paragraph")
+    }
+  }
+
+  // ========== Large Content ==========
+
+  it should "handle large text content" in {
+    val largeContent = ("x" * 10000).getBytes(StandardCharsets.UTF_8)
+    val filename     = "large.txt"
+
+    val result = extractor.extract(largeContent, filename)
+
+    result.isRight shouldBe true
+    result.map(doc => doc.text.length shouldBe 10000)
+  }
+
+  // ========== Special Characters ==========
+
+  it should "handle content with special characters" in {
+    val content  = "Special: \t\n\r &<>\"'".getBytes(StandardCharsets.UTF_8)
+    val filename = "special.txt"
+
+    val result = extractor.extract(content, filename)
+
+    result.isRight shouldBe true
+    result.map { doc =>
+      doc.text should include("\t")
+      doc.text should include("&")
+    }
+  }
+
+  // ========== canExtract edge cases ==========
+
+  it should "handle unknown MIME types in canExtract" in {
+    extractor.canExtract("application/unknown") shouldBe false
+    extractor.canExtract("custom/type") shouldBe false
+  }
+
+  it should "handle text subtypes in canExtract" in {
+    extractor.canExtract("text/x-python") shouldBe true
+    extractor.canExtract("text/x-java-source") shouldBe true
+    extractor.canExtract("text/css") shouldBe true
+  }
 }
 
 class DocumentFormatSpec extends AnyFlatSpec with Matchers {

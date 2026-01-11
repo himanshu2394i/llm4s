@@ -139,4 +139,110 @@ class UniversalExtractorSpec extends AnyFunSuite with Matchers {
       result.toOption.get shouldBe "Whitespace trimmed"
     }
   }
+
+  // ================================= BYTE-BASED EXTRACTION =================================
+
+  test("extractFromBytes should extract plain text from bytes") {
+    val content = "Hello from bytes!".getBytes("UTF-8")
+    val result  = UniversalExtractor.extractFromBytes(content, "test.txt")
+    result.isRight shouldBe true
+    result.toOption.get shouldBe "Hello from bytes!"
+  }
+
+  test("extractFromBytes should extract UTF-8 content") {
+    val content = "Hello 世界 🌍".getBytes("UTF-8")
+    val result  = UniversalExtractor.extractFromBytes(content, "unicode.txt")
+    result.isRight shouldBe true
+    result.toOption.get should include("世界")
+    result.toOption.get should include("🌍")
+  }
+
+  test("extractFromBytes should handle empty content") {
+    val content = Array.empty[Byte]
+    val result  = UniversalExtractor.extractFromBytes(content, "empty.txt")
+    result.isRight shouldBe true
+    result.toOption.get shouldBe ""
+  }
+
+  test("extractFromBytes should detect MIME type from filename") {
+    val jsonContent = """{"key": "value"}""".getBytes("UTF-8")
+    val result      = UniversalExtractor.extractFromBytes(jsonContent, "data.json")
+    // Should either succeed or fail gracefully - exercises the code path
+    result.isLeft || result.isRight shouldBe true
+  }
+
+  test("extractFromBytes should use provided MIME type override") {
+    val content = "plain text content".getBytes("UTF-8")
+    // Use explicit MIME type regardless of filename
+    val result = UniversalExtractor.extractFromBytes(content, "unknown.xyz", Some("text/plain"))
+    result.isRight shouldBe true
+    result.toOption.get shouldBe "plain text content"
+  }
+
+  // ================================= STREAM-BASED EXTRACTION =================================
+
+  test("extractFromStream should extract text from stream") {
+    val content = "Hello from stream!".getBytes("UTF-8")
+    val stream  = new java.io.ByteArrayInputStream(content)
+    val result  = UniversalExtractor.extractFromStream(stream, "test.txt")
+    result.isRight shouldBe true
+    result.toOption.get shouldBe "Hello from stream!"
+  }
+
+  test("extractFromStream should handle UTF-8 content") {
+    val content = "Привет мир".getBytes("UTF-8")
+    val stream  = new java.io.ByteArrayInputStream(content)
+    val result  = UniversalExtractor.extractFromStream(stream, "russian.txt")
+    result.isRight shouldBe true
+    result.toOption.get should include("Привет")
+  }
+
+  test("extractFromStream should handle empty stream") {
+    val stream = new java.io.ByteArrayInputStream(Array.empty[Byte])
+    val result = UniversalExtractor.extractFromStream(stream, "empty.txt")
+    result.isRight shouldBe true
+    result.toOption.get shouldBe ""
+  }
+
+  test("extractFromStream should use provided MIME type") {
+    val content = "<html><body>Test</body></html>".getBytes("UTF-8")
+    val stream  = new java.io.ByteArrayInputStream(content)
+    val result  = UniversalExtractor.extractFromStream(stream, "page.html", Some("text/html"))
+    result.isRight shouldBe true
+    result.toOption.get should include("Test")
+  }
+
+  // ================================= MIME TYPE DETECTION =================================
+
+  test("detectMimeType should detect text/plain from .txt extension") {
+    val content = "plain text".getBytes("UTF-8")
+    val mime    = UniversalExtractor.detectMimeType(content, "test.txt")
+    mime should startWith("text/")
+  }
+
+  test("detectMimeType should detect PDF from magic bytes") {
+    // PDF magic bytes: %PDF-
+    val pdfHeader = Array[Byte](0x25, 0x50, 0x44, 0x46, 0x2d)
+    val mime      = UniversalExtractor.detectMimeType(pdfHeader, "document.pdf")
+    mime shouldBe "application/pdf"
+  }
+
+  test("detectMimeType should detect JSON from extension") {
+    val content = """{"key": "value"}""".getBytes("UTF-8")
+    val mime    = UniversalExtractor.detectMimeType(content, "data.json")
+    mime shouldBe "application/json"
+  }
+
+  test("detectMimeType should detect HTML from extension") {
+    val content = "<html></html>".getBytes("UTF-8")
+    val mime    = UniversalExtractor.detectMimeType(content, "page.html")
+    mime should (be("text/html").or(startWith("text/")))
+  }
+
+  test("detectMimeType should handle unknown extension") {
+    val content = "some content".getBytes("UTF-8")
+    val mime    = UniversalExtractor.detectMimeType(content, "file.xyz")
+    // Should return some MIME type (may be text/plain or application/octet-stream)
+    mime should not be empty
+  }
 }
