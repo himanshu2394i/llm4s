@@ -33,6 +33,7 @@ Explore **70 working examples** covering all LLM4S features.
 | [Reasoning Examples](#reasoning-examples) | 1 | Extended thinking modes |
 | [Context Management](#context-management) | 8 | Token windows, compression |
 | [Embeddings](#embeddings) | 5 | Vector search, RAG |
+| [RAG in a Box](#rag-in-a-box) | - | Production RAG server (external project) |
 | [MCP Examples](#mcp-examples) | 3 | Model Context Protocol |
 | [Model Examples](#model-examples) | 1 | Model metadata and capabilities |
 | [Other Examples](#other-examples) | 8 | Speech, actions, utilities |
@@ -883,6 +884,75 @@ sbt "samples/runMain org.llm4s.samples.embeddingsupport.EmbeddingExample"
 - Chunking and preprocessing
 
 [View all embedding examples →](embeddings)
+
+---
+
+### S3LoaderExample {#s3-loader}
+
+**File:** [`S3LoaderExample.scala`](https://github.com/llm4s/llm4s/blob/main/modules/samples/src/main/scala/org/llm4s/samples/rag/S3LoaderExample.scala)
+
+Load and ingest documents from AWS S3 buckets with full PDF/DOCX support.
+
+```bash
+# First, set AWS credentials
+export AWS_ACCESS_KEY_ID=your-key
+export AWS_SECRET_ACCESS_KEY=your-secret
+
+sbt "samples/runMain org.llm4s.samples.rag.S3LoaderExample"
+```
+
+**What it demonstrates:**
+- Loading documents from S3 buckets
+- PDF and DOCX extraction from cloud storage
+- Incremental sync with change detection via ETags
+- Using S3Loader with RAG.sync()
+- LocalStack testing setup
+
+**Key Code:**
+```scala
+import org.llm4s.rag.loader.s3.S3Loader
+
+// Load all supported documents from S3
+val loader = S3Loader(
+  bucket = "my-documents",
+  prefix = "docs/",
+  region = "us-east-1"
+)
+
+// Sync with change detection
+rag.sync(loader) match {
+  case Right(stats) =>
+    println(s"Added: ${stats.added}, Updated: ${stats.updated}")
+  case Left(err) =>
+    println(s"Error: ${err.message}")
+}
+```
+
+[View source →](https://github.com/llm4s/llm4s/blob/main/modules/samples/src/main/scala/org/llm4s/samples/rag/S3LoaderExample.scala)
+
+---
+
+## RAG in a Box
+
+**Repository:** [github.com/llm4s/rag_in_a_box](https://github.com/llm4s/rag_in_a_box)
+
+RAG in a Box is a production-ready RAG server built on the LLM4S framework. It provides a complete solution for document ingestion, semantic search, and AI-powered question answering.
+
+**Key Features:**
+- REST API for document management and querying
+- Multi-format document support (text, markdown, PDF, URLs)
+- Configurable chunking strategies (simple, sentence, markdown, semantic)
+- Hybrid search with RRF fusion (vector + keyword)
+- Vue.js admin dashboard with document browser and analytics
+- Docker Compose and Kubernetes deployment options
+- JWT authentication, Prometheus metrics, health checks
+
+**Current Status:**
+- 194 backend tests, 8 frontend E2E specs
+- Security scanning (OWASP, Anchore)
+- Comprehensive documentation
+
+[View RAG in a Box →](https://github.com/llm4s/rag_in_a_box)
 
 ---
 

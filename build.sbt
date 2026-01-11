@@ -153,7 +153,9 @@ lazy val core = (project in file("modules/core"))
       Deps.vosk,
       Deps.postgres,
       Deps.config,
-      Deps.hikariCP
+      Deps.hikariCP,
+      Deps.awsS3,
+      Deps.awsSts
     )
   )
 

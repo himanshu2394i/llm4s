@@ -112,13 +112,14 @@ graph TD
 | **RAG Core Engine** | ✅ Complete | Retrieval pipeline shipped |
 | **RAG Evaluation** | ✅ Complete | RAGAS metrics + benchmarking harness |
 | **RAG Benchmarking** | ✅ Complete | Chunking, fusion, embedding comparison |
+| **RAG in a Box** | ✅ Complete | [Separate project](https://github.com/llm4s/rag_in_a_box) - 194 tests, production-ready |
 | **MCP Full Implementation** | ~50% | Full protocol, server implementation |
 | **Advanced Embeddings** | ~60% | Multi-provider support, caching |
 | **Enhanced Observability** | Planning | Plugin architecture, multi-backend |
 
 ### RAG Pipeline Roadmap
 
-The RAG pipeline follows a 5-phase roadmap toward a production-grade retrieval system. The core library (Phases 1-3) lives in LLM4S; deployment tooling (Phases 4-5) may be provided by a separate "RAG in a Box" project that builds on this library.
+The RAG pipeline follows a 5-phase roadmap toward a production-grade retrieval system. The core library (Phases 1-3) lives in LLM4S; deployment tooling (Phase 5) is provided by the separate [RAG in a Box](https://github.com/llm4s/rag_in_a_box) project.
 
 #### Phase 1: Foundation ✅ COMPLETE
 
@@ -161,18 +162,29 @@ The RAG pipeline follows a 5-phase roadmap toward a production-grade retrieval s
 | Embedding Cache | 📋 Planned | Reduce redundant embedding calls |
 | Metadata Extraction | 📋 Planned | Titles, TOC, links, code blocks |
 
-#### Phase 5: Deployment & UX (Separate Project)
+#### Phase 5: RAG in a Box Server ✅ COMPLETE
 
-These components enable a turnkey "RAG in a Box" deployment and may live in a dedicated project:
+RAG in a Box is a production-ready RAG server built on the LLM4S framework, providing a complete REST API for document ingestion, semantic search, and AI-powered question answering.
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| REST API Layer | 📋 Planned | Document ingestion, query endpoints, streaming |
-| Docker Compose | 📋 Planned | Multi-container RAG stack |
-| Helm Charts | 📋 Planned | Kubernetes deployment |
-| Admin UI | 📋 Planned | Document management, index config, monitoring |
-| Chat UI | 📋 Planned | Testing interface with source highlighting |
-| Multi-tenancy | 📋 Planned | Org isolation, RBAC, quotas |
+| REST API Layer | ✅ Complete | Document ingestion, query endpoints, streaming responses |
+| Docker Compose | ✅ Complete | Single-command deployment with PostgreSQL/pgvector |
+| Kubernetes | ✅ Complete | Namespace, ConfigMap, Secrets, Deployments, Ingress templates |
+| Admin UI | ✅ Complete | Vue.js dashboard with real-time stats, document browser, chunking preview |
+| Security | ✅ Complete | JWT auth, PBKDF2 password hashing, CORS, input validation |
+| Observability | ✅ Complete | Prometheus metrics, health checks (/health, /ready, /live) |
+| CI/CD | ✅ Complete | 194 backend tests, security scanning (OWASP, Anchore) |
+
+**Key Features:**
+- Multi-format document ingestion (text, markdown, PDF, URLs)
+- Configurable chunking strategies (simple, sentence, markdown, semantic)
+- Collection-based organization with per-collection settings
+- Hybrid search with RRF fusion (vector + keyword)
+- Multi-provider support for embeddings (OpenAI, Voyage, Ollama) and LLM (OpenAI, Anthropic, Ollama)
+- Production infrastructure: HikariCP connection pooling, structured logging, graceful shutdown
+
+**Repository:** [github.com/llm4s/rag_in_a_box](https://github.com/llm4s/rag_in_a_box)
 
 ---
 
@@ -214,7 +226,7 @@ These components enable a turnkey "RAG in a Box" deployment and may live in a de
 | Workflow Engines | Camunda/Temporal integration |
 | Plugin Architecture | Community-contributed providers and tools |
 | Advanced Multi-Agent | DAG orchestration, complex workflows |
-| **RAG in a Box** | Separate project: REST API, Docker/Helm deployment, Admin/Chat UI |
+| ~~**RAG in a Box**~~ | ✅ Complete - See [RAG in a Box](https://github.com/llm4s/rag_in_a_box) |
 
 ---
 

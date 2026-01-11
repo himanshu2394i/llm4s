@@ -35,6 +35,9 @@ object Versions {
 
   val sttp       = "4.0.9"
   val cask       = "0.10.2"
+
+  // AWS SDK
+  val awsSdk     = "2.29.51"
 }
 
 object Deps {
@@ -70,6 +73,10 @@ object Deps {
 
   val sttp       = "com.softwaremill.sttp.client4" %% "core" % Versions.sttp
   val cask       = "com.lihaoyi" %% "cask" % Versions.cask
+
+  // AWS SDK
+  val awsS3      = "software.amazon.awssdk" % "s3"  % Versions.awsSdk
+  val awsSts     = "software.amazon.awssdk" % "sts" % Versions.awsSdk
 }
 
 object Common {

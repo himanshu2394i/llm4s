@@ -3,7 +3,7 @@ package org.llm4s.llmconnect.extractors
 import org.llm4s.llmconnect.model.ExtractorError
 import org.slf4j.LoggerFactory
 
-import java.io.File
+import java.io.{ ByteArrayInputStream, File, InputStream }
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import scala.io.Source
@@ -272,5 +272,149 @@ object UniversalExtractor {
         path = Some(file.getPath)
       )
     )
+  }
+
+  // ================================= BYTE-BASED API =================================
+
+  /**
+   * Extract text from raw bytes.
+   *
+   * This method enables source-agnostic document extraction - the same extraction
+   * logic can be used for documents from S3, HTTP responses, databases, etc.
+   *
+   * @param content Raw document bytes
+   * @param filename Filename for MIME type detection (e.g., "report.pdf")
+   * @param mimeType Optional explicit MIME type (skips detection if provided)
+   * @return Extracted text content or an error
+   */
+  def extractFromBytes(
+    content: Array[Byte],
+    filename: String,
+    mimeType: Option[String] = None
+  ): Either[ExtractorError, String] = {
+    val detectedMime = mimeType.getOrElse(tika.detect(content, filename))
+    logger.info(s"[ExtractFromBytes] Processing: $filename (MIME: $detectedMime)")
+
+    detectedMime match {
+      case PdfMime =>
+        extractPDFFromBytes(content) match {
+          case Success(text) => Right(text)
+          case Failure(ex) =>
+            logger.error(s"[PDF] Extraction failed for $filename: ${ex.getMessage}", ex)
+            Left(
+              ExtractorError(
+                message = s"PDF extraction failed: ${ex.getMessage}",
+                `type` = "PDFError",
+                path = Some(filename)
+              )
+            )
+        }
+
+      case DocxMime =>
+        extractDocxFromBytes(content) match {
+          case Success(text) => Right(text)
+          case Failure(ex) =>
+            logger.error(s"[DOCX] Extraction failed for $filename: ${ex.getMessage}", ex)
+            Left(
+              ExtractorError(
+                message = s"DOCX extraction failed: ${ex.getMessage}",
+                `type` = "DocxError",
+                path = Some(filename)
+              )
+            )
+        }
+
+      case mt if mt.startsWith("text/") =>
+        extractTextFromBytes(content) match {
+          case Success(text) => Right(text)
+          case Failure(ex) =>
+            logger.error(s"[Text] Read failed for $filename: ${ex.getMessage}", ex)
+            Left(
+              ExtractorError(
+                message = s"Text read failed: ${ex.getMessage}",
+                `type` = "TextError",
+                path = Some(filename)
+              )
+            )
+        }
+
+      case other =>
+        // Try Tika as fallback
+        extractWithTikaFromBytes(content) match {
+          case Success(text) if text.trim.nonEmpty =>
+            logger.info(s"[Tika] Successfully extracted from unknown type: $other")
+            Right(text)
+          case _ =>
+            logger.error(s"[UnknownType] No text extractor for MIME type: $other")
+            Left(
+              ExtractorError(
+                message = s"Unsupported file type: $other",
+                `type` = "UnsupportedType",
+                path = Some(filename)
+              )
+            )
+        }
+    }
+  }
+
+  /**
+   * Extract text from an InputStream.
+   *
+   * Note: This reads the entire stream into memory for processing.
+   * The caller is responsible for closing the stream after this method returns.
+   *
+   * @param input InputStream to read from
+   * @param filename Filename for MIME type detection
+   * @param mimeType Optional explicit MIME type
+   * @return Extracted text content or an error
+   */
+  def extractFromStream(
+    input: InputStream,
+    filename: String,
+    mimeType: Option[String] = None
+  ): Either[ExtractorError, String] =
+    Try(input.readAllBytes()) match {
+      case Success(bytes) => extractFromBytes(bytes, filename, mimeType)
+      case Failure(ex) =>
+        logger.error(s"[Stream] Failed to read input stream: ${ex.getMessage}", ex)
+        Left(
+          ExtractorError(
+            message = s"Failed to read input stream: ${ex.getMessage}",
+            `type` = "StreamError",
+            path = Some(filename)
+          )
+        )
+    }
+
+  /**
+   * Detect MIME type from bytes and filename.
+   *
+   * @param content Raw document bytes (first few KB are sufficient)
+   * @param filename Filename hint for detection
+   * @return Detected MIME type string
+   */
+  def detectMimeType(content: Array[Byte], filename: String): String =
+    tika.detect(content, filename)
+
+  // ================================= BYTE-BASED EXTRACTION HELPERS =================================
+
+  private def extractPDFFromBytes(content: Array[Byte]): Try[String] = Try {
+    Using.resource(Loader.loadPDF(content)) { doc =>
+      val stripper = new PDFTextStripper()
+      stripper.getText(doc)
+    }
+  }
+
+  private def extractDocxFromBytes(content: Array[Byte]): Try[String] = Try {
+    Using.resource(new ByteArrayInputStream(content)) { bis =>
+      Using.resource(new XWPFDocument(bis))(doc => doc.getParagraphs.asScala.map(_.getText).mkString("\n"))
+    }
+  }
+
+  private def extractTextFromBytes(content: Array[Byte]): Try[String] =
+    Try(new String(content, StandardCharsets.UTF_8))
+
+  private def extractWithTikaFromBytes(content: Array[Byte]): Try[String] = Try {
+    Using.resource(new ByteArrayInputStream(content))(bis => tika.parseToString(bis))
   }
 }

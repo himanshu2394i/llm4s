@@ -64,7 +64,7 @@ Real-time token streaming with backpressure handling and error recovery.
 [View examples →](/examples/#streaming)
 
 #### 🔍 RAG & Embeddings
-Complete RAG pipeline: vector storage (SQLite, pgvector, Qdrant), BM25 hybrid search, Cohere cross-encoder reranking, and sentence-aware document chunking.
+Complete RAG pipeline: vector storage (SQLite, pgvector, Qdrant), BM25 hybrid search, Cohere cross-encoder reranking, and sentence-aware document chunking. For production deployment, see [RAG in a Box](https://github.com/llm4s/rag_in_a_box).
 [Vector stores →](/guide/vector-store) | [Examples →](/examples/#embeddings-examples)
 
 #### 🖼️ Multimodal Support
