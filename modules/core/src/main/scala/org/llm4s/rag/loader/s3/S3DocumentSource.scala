@@ -13,7 +13,13 @@ import software.amazon.awssdk.auth.credentials.{
 import software.amazon.awssdk.core.ResponseInputStream
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
-import software.amazon.awssdk.services.s3.model.{ GetObjectRequest, GetObjectResponse, ListObjectsV2Request, S3Object }
+import software.amazon.awssdk.services.s3.model.{
+  GetObjectRequest,
+  GetObjectResponse,
+  HeadObjectRequest,
+  ListObjectsV2Request,
+  S3Object
+}
 
 import java.io.InputStream
 import java.net.URI
@@ -82,11 +88,14 @@ final case class S3DocumentSource(
     logger.info(s"Listing documents from s3://$bucket/$prefix")
 
     new S3ObjectIterator(client, bucket, prefix, extensions)
-      .map { s3Object =>
-        val key = s3Object.key()
-        val ref = toDocumentRef(s3Object)
-        logger.debug(s"Found document: $key")
-        Right(ref)
+      .map {
+        case Right(s3Object) =>
+          val key = s3Object.key()
+          val ref = toDocumentRef(s3Object)
+          logger.debug(s"Found document: $key")
+          Right(ref)
+        case Left(err) =>
+          Left(err)
       }
   }
 
@@ -136,14 +145,16 @@ final case class S3DocumentSource(
       case Some(version) => Right(version)
       case None          =>
         // If no ETag in ref, we need to fetch object metadata
+        // Use headObject instead of getObject to avoid downloading the body
+        // and to prevent resource leaks from unclosed streams
         Try {
-          val request = GetObjectRequest
+          val request = HeadObjectRequest
             .builder()
             .bucket(bucket)
             .key(ref.path)
             .build()
 
-          val response = client.getObject(request).response()
+          val response = client.headObject(request)
           DocumentVersion(
             contentHash = response.eTag().replace("\"", ""),
             timestamp = Option(response.lastModified()).map(_.toEpochMilli),
@@ -257,31 +268,50 @@ object S3DocumentSource {
 
 /**
  * Iterator over S3 objects with automatic pagination.
+ *
+ * Returns Result[S3Object] to handle S3 API failures gracefully instead of
+ * throwing exceptions that would abort the entire load/sync operation.
  */
 private class S3ObjectIterator(
   client: S3Client,
   bucket: String,
   prefix: String,
   extensions: Set[String]
-) extends Iterator[S3Object] {
+) extends Iterator[Result[S3Object]] {
 
-  private var continuationToken: Option[String] = None
-  private var currentBatch: Iterator[S3Object]  = Iterator.empty
-  private var hasMore: Boolean                  = true
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  private var continuationToken: Option[String]  = None
+  private var currentBatch: Iterator[S3Object]   = Iterator.empty
+  private var hasMore: Boolean                   = true
+  private var pendingError: Option[NetworkError] = None
+  private var errorReturned: Boolean             = false
 
   override def hasNext: Boolean =
-    if (currentBatch.hasNext) {
+    // If we have a pending error that hasn't been returned yet, we have one more item
+    if (pendingError.isDefined && !errorReturned) {
       true
-    } else if (hasMore) {
+    } else if (currentBatch.hasNext) {
+      true
+    } else if (hasMore && pendingError.isEmpty) {
       fetchNextBatch()
-      currentBatch.hasNext
+      // After fetching, check again - either we have items, or we have an error to return
+      currentBatch.hasNext || (pendingError.isDefined && !errorReturned)
     } else {
       false
     }
 
-  override def next(): S3Object = {
+  override def next(): Result[S3Object] = {
     if (!hasNext) throw new NoSuchElementException("No more S3 objects")
-    currentBatch.next()
+
+    // Return pending error if we have one
+    pendingError match {
+      case Some(err) if !errorReturned =>
+        errorReturned = true
+        Left(err)
+      case _ =>
+        Right(currentBatch.next())
+    }
   }
 
   private def fetchNextBatch(): Unit = {
@@ -293,18 +323,32 @@ private class S3ObjectIterator(
 
     continuationToken.foreach(requestBuilder.continuationToken)
 
-    val response = client.listObjectsV2(requestBuilder.build())
+    Try(client.listObjectsV2(requestBuilder.build())) match {
+      case Success(response) =>
+        val objects = response
+          .contents()
+          .asScala
+          .iterator
+          .filter(obj => !obj.key().endsWith("/")) // Skip directory markers
+          .filter(obj => matchesExtension(obj.key()))
 
-    val objects = response
-      .contents()
-      .asScala
-      .iterator
-      .filter(obj => !obj.key().endsWith("/")) // Skip directory markers
-      .filter(obj => matchesExtension(obj.key()))
+        currentBatch = objects
+        continuationToken = Option(response.nextContinuationToken())
+        hasMore = response.isTruncated
 
-    currentBatch = objects
-    continuationToken = Option(response.nextContinuationToken())
-    hasMore = response.isTruncated
+      case Failure(ex) =>
+        // Log the error and store it to return as a Left on next iteration
+        logger.error(s"Failed to list S3 objects from s3://$bucket/$prefix: ${ex.getMessage}", ex)
+        pendingError = Some(
+          NetworkError(
+            s"Failed to list S3 objects from s3://$bucket/$prefix: ${ex.getMessage}",
+            Some(ex),
+            "s3"
+          )
+        )
+        hasMore = false
+        currentBatch = Iterator.empty
+    }
   }
 
   private def matchesExtension(key: String): Boolean = {
