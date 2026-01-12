@@ -8,7 +8,7 @@ import org.llm4s.llmconnect.LLMClient
 import org.llm4s.llmconnect.config.{ AzureConfig, OpenAIConfig, ProviderConfig }
 import org.llm4s.llmconnect.model._
 import org.llm4s.llmconnect.streaming._
-import org.llm4s.model.{ ModelRegistry, TransformationResult }
+import org.llm4s.model.TransformationResult
 import org.llm4s.toolapi.{ AzureToolHelper, ToolRegistry }
 import org.llm4s.types.Result
 
@@ -86,7 +86,7 @@ class OpenAIClient private (
         dropUnsupported = true
       )
       transformedConversation = conversation.copy(messages = transformed.messages)
-      chatOptions             = prepareChatOptions(transformedConversation, transformed.options)
+      chatOptions             = prepareChatOptions(transformedConversation, transformed.options, transformed.requiresMaxCompletionTokens)
       completions <- Try(client.getChatCompletions(model, chatOptions)).toEither.left.map(e => e.toLLMError)
     } yield convertFromOpenAIFormat(completions)
 
@@ -99,7 +99,7 @@ class OpenAIClient private (
     TransformationResult.transform(model, options, conversation.messages, dropUnsupported = true).flatMap {
       transformed =>
         val transformedConversation = conversation.copy(messages = transformed.messages)
-        val chatOptions             = prepareChatOptions(transformedConversation, transformed.options)
+        val chatOptions             = prepareChatOptions(transformedConversation, transformed.options, transformed.requiresMaxCompletionTokens)
 
         // Create accumulator for building the final completion
         val accumulator = StreamingAccumulator.create()
@@ -208,9 +208,14 @@ class OpenAIClient private (
    *
    * @param conversation llm4s conversation to convert
    * @param options completion options to apply
+   * @param useMaxCompletionTokens if true, use max_completion_tokens instead of max_tokens
    * @return configured ChatCompletionsOptions ready for API call
    */
-  private def prepareChatOptions(conversation: Conversation, options: CompletionOptions): ChatCompletionsOptions = {
+  private def prepareChatOptions(
+    conversation: Conversation,
+    options: CompletionOptions,
+    useMaxCompletionTokens: Boolean
+  ): ChatCompletionsOptions = {
     // Convert conversation to Azure format
     val chatMessages = convertToOpenAIMessages(conversation)
 
@@ -220,16 +225,10 @@ class OpenAIClient private (
     // Set options
     chatOptions.setTemperature(options.temperature.doubleValue())
     options.maxTokens.foreach { mt =>
-      // Check if model supports reasoning (requires max_completion_tokens)
-      // We check both the registry and common naming patterns for safety
-      val supportsReasoning = ModelRegistry.lookup(model).exists(_.supports("reasoning")) ||
-        model.startsWith("o1-") || model.startsWith("o3-") || model.contains("gpt-5")
-
-      if (supportsReasoning) {
+      if (useMaxCompletionTokens)
         chatOptions.setMaxCompletionTokens(mt)
-      } else {
+      else
         chatOptions.setMaxTokens(mt)
-      }
     }
     chatOptions.setPresencePenalty(options.presencePenalty.doubleValue())
     chatOptions.setFrequencyPenalty(options.frequencyPenalty.doubleValue())

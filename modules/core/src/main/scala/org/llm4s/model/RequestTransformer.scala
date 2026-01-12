@@ -69,6 +69,17 @@ trait RequestTransformer {
   def requiresFakeStreaming(modelId: String): Boolean
 
   /**
+   * Check if this model requires max_completion_tokens instead of max_tokens.
+   *
+   * Some models (like O-series reasoning models) require the use of
+   * max_completion_tokens parameter instead of the standard max_tokens.
+   *
+   * @param modelId The model identifier
+   * @return true if the model requires max_completion_tokens
+   */
+  def requiresMaxCompletionTokens(modelId: String): Boolean
+
+  /**
    * Get the set of parameters that are not supported by this model.
    *
    * @param modelId The model identifier
@@ -200,6 +211,13 @@ class DefaultRequestTransformer(
     !capabilities.supportsNativeStreaming.getOrElse(true)
   }
 
+  override def requiresMaxCompletionTokens(modelId: String): Boolean = {
+    val normalized = modelId.toLowerCase
+    isOSeriesModel(modelId) ||
+    normalized.contains("gpt-5") ||
+    normalized.contains("gpt5")
+  }
+
   override def getDisallowedParams(modelId: String): Set[String] = {
     val capabilities = getCapabilities(modelId)
     capabilities.disallowedParams.getOrElse(Set.empty)
@@ -272,7 +290,8 @@ case class TransformationResult(
   options: CompletionOptions,
   messages: Seq[Message],
   warnings: Seq[String] = Seq.empty,
-  requiresFakeStreaming: Boolean = false
+  requiresFakeStreaming: Boolean = false,
+  requiresMaxCompletionTokens: Boolean = false
 )
 
 object TransformationResult {
@@ -291,7 +310,8 @@ object TransformationResult {
       TransformationResult(
         options = transformedOptions,
         messages = transformer.transformMessages(modelId, messages),
-        requiresFakeStreaming = transformer.requiresFakeStreaming(modelId)
+        requiresFakeStreaming = transformer.requiresFakeStreaming(modelId),
+        requiresMaxCompletionTokens = transformer.requiresMaxCompletionTokens(modelId)
       )
     }
 }
