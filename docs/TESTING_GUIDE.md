@@ -78,11 +78,16 @@ Tests generally mirror the source layout:
 
 ```
 llm4s/
-  src/
-    main/
-    test/
-      scala/
-        <module>/*Spec.scala
+  modules/
+    <module-name>/
+      src/
+        main/
+          scala/
+            <package>/
+              ...
+        test/
+          scala/
+            <package>/*Spec.scala
 ```
 
 Conventions:
