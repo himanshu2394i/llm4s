@@ -87,7 +87,7 @@ llm4s/
 
 Conventions:
 
-* Use `*Spec.scala` suffix
+* Use `*Spec.scala` or `*Test.scala` suffix (prefer `*Spec.scala` for new tests)
 * One primary behavior per spec file
 * Group related tests using nested `describe` / `it` blocks
 
