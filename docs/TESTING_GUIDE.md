@@ -89,7 +89,7 @@ Conventions:
 
 * Use `*Spec.scala` or `*Test.scala` suffix (prefer `*Spec.scala` for new tests)
 * One primary behavior per spec file
-* Group related tests using nested `describe` / `it` blocks
+* Group related tests using the ScalaTest styles used in this project: `AnyFlatSpec` with `'ClassName' should 'behavior'` / `it should 'behavior'`, and `AnyFunSuite` with `test("behavior") { ... }` blocks
 
 ---
 
