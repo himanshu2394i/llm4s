@@ -11,17 +11,15 @@ class LLMProviderSpec extends AnyFlatSpec with Matchers {
   // ============ Provider Instances ============
 
   "LLMProvider" should "have all expected provider instances" in {
-    LLMProvider.all should contain theSameElementsAs Seq(
+    LLMProvider.all should have size 6
+    (LLMProvider.all should contain).allOf(
       LLMProvider.OpenAI,
       LLMProvider.Azure,
       LLMProvider.Anthropic,
       LLMProvider.OpenRouter,
-      LLMProvider.Ollama
+      LLMProvider.Ollama,
+      LLMProvider.Zai
     )
-  }
-
-  it should "have exactly 5 providers" in {
-    LLMProvider.all should have size 5
   }
 
   // ============ Provider Names ============
@@ -46,6 +44,10 @@ class LLMProviderSpec extends AnyFlatSpec with Matchers {
     LLMProvider.Ollama.name shouldBe "ollama"
   }
 
+  it should "return correct name for Zai" in {
+    LLMProvider.Zai.name shouldBe "zai"
+  }
+
   // ============ fromName Parsing ============
 
   "LLMProvider.fromName" should "parse 'openai' correctly" in {
@@ -68,12 +70,17 @@ class LLMProviderSpec extends AnyFlatSpec with Matchers {
     LLMProvider.fromName("ollama") shouldBe Some(LLMProvider.Ollama)
   }
 
+  it should "parse 'zai' correctly" in {
+    LLMProvider.fromName("zai") shouldBe Some(LLMProvider.Zai)
+  }
+
   it should "be case insensitive" in {
     LLMProvider.fromName("OpenAI") shouldBe Some(LLMProvider.OpenAI)
     LLMProvider.fromName("AZURE") shouldBe Some(LLMProvider.Azure)
     LLMProvider.fromName("Anthropic") shouldBe Some(LLMProvider.Anthropic)
     LLMProvider.fromName("OpenRouter") shouldBe Some(LLMProvider.OpenRouter)
     LLMProvider.fromName("OLLAMA") shouldBe Some(LLMProvider.Ollama)
+    LLMProvider.fromName("ZAI") shouldBe Some(LLMProvider.Zai)
   }
 
   it should "return None for unknown providers" in {
@@ -108,9 +115,11 @@ class LLMProviderSpec extends AnyFlatSpec with Matchers {
       case LLMProvider.Anthropic  => "cloud-anthropic"
       case LLMProvider.OpenRouter => "cloud-openrouter"
       case LLMProvider.Ollama     => "local"
+      case LLMProvider.Zai        => "cloud-zai"
     }
 
     describe(LLMProvider.OpenAI) shouldBe "cloud-openai"
     describe(LLMProvider.Ollama) shouldBe "local"
+    describe(LLMProvider.Zai) shouldBe "cloud-zai"
   }
 }

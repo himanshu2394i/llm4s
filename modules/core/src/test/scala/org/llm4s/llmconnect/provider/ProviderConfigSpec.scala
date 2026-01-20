@@ -170,6 +170,65 @@ class ProviderConfigSpec extends AnyFunSuite with Matchers {
     config.reserveCompletion should be > 0
   }
 
+  // ================================= ZAI CONFIG =================================
+
+  test("ZaiConfig.fromValues creates config with correct model") {
+    val config = ZaiConfig.fromValues(
+      modelName = "GLM-4.7",
+      apiKey = "test-key",
+      baseUrl = "https://api.z.ai/api/paas/v4"
+    )
+
+    config.model shouldBe "GLM-4.7"
+    config.apiKey shouldBe "test-key"
+    config.baseUrl shouldBe "https://api.z.ai/api/paas/v4"
+  }
+
+  test("ZaiConfig.fromValues sets correct context window for GLM-4.7") {
+    val config = ZaiConfig.fromValues(
+      modelName = "GLM-4.7",
+      apiKey = "test-key",
+      baseUrl = "https://api.z.ai/api/paas/v4"
+    )
+
+    config.contextWindow shouldBe 128000
+  }
+
+  test("ZaiConfig.fromValues sets correct context window for GLM-4.5-air") {
+    val config = ZaiConfig.fromValues(
+      modelName = "GLM-4.5-air",
+      apiKey = "test-key",
+      baseUrl = "https://api.z.ai/api/paas/v4"
+    )
+
+    config.contextWindow shouldBe 32000
+  }
+
+  test("ZaiConfig.fromValues throws for empty apiKey") {
+    an[IllegalArgumentException] should be thrownBy {
+      ZaiConfig.fromValues(
+        modelName = "GLM-4.7",
+        apiKey = "",
+        baseUrl = "https://api.z.ai/api/paas/v4"
+      )
+    }
+  }
+
+  test("ZaiConfig.fromValues throws for empty baseUrl") {
+    an[IllegalArgumentException] should be thrownBy {
+      ZaiConfig.fromValues(
+        modelName = "GLM-4.7",
+        apiKey = "test-key",
+        baseUrl = ""
+      )
+    }
+  }
+
+  test("ZaiConfig.fromValues sets reserveCompletion for all models") {
+    val config = ZaiConfig.fromValues("GLM-4.7", "test-key", "https://api.z.ai/api/paas/v4")
+    config.reserveCompletion should be > 0
+  }
+
   // ================================= PROVIDER CONFIG TRAIT =================================
 
   test("All config types implement ProviderConfig trait") {
@@ -179,10 +238,13 @@ class ProviderConfigSpec extends AnyFunSuite with Matchers {
     val ollama: ProviderConfig = OllamaConfig.fromValues("llama3", "http://localhost:11434")
     val azure: ProviderConfig =
       AzureConfig.fromValues("gpt-4o", "https://azure.openai.com", "key", "2024-02-15")
+    val zai: ProviderConfig =
+      ZaiConfig.fromValues("GLM-4.7", "key", "https://api.z.ai/api/paas/v4")
 
     openai.model shouldBe "gpt-4o"
     anthropic.model shouldBe "claude-3-sonnet"
     ollama.model shouldBe "llama3"
     azure.model shouldBe "gpt-4o"
+    zai.model shouldBe "GLM-4.7"
   }
 }

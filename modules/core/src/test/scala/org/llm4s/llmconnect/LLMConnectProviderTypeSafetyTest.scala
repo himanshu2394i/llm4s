@@ -84,6 +84,21 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
     }
   }
 
+  test("Zai provider with ZaiConfig returns ZaiClient") {
+    val cfg: ProviderConfig = ZaiConfig(
+      apiKey = "key",
+      model = "GLM-4.7",
+      baseUrl = "https://api.z.ai/api/paas/v4",
+      contextWindow = 128000,
+      reserveCompletion = 4096
+    )
+    val res = LLMConnect.getClient(LLMProvider.Zai, cfg)
+    res match {
+      case Right(client) => client.getClass.getSimpleName shouldBe "ZaiClient"
+      case Left(err)     => fail(s"Expected Right, got Left($err)")
+    }
+  }
+
   test("OpenAI provider with non-OpenAIConfig should throw IllegalArgumentException") {
     val wrongCfg: ProviderConfig = AnthropicConfig(
       apiKey = "key",
@@ -122,6 +137,20 @@ class LLMConnectProviderTypeSafetyTest extends AnyFunSuite with Matchers {
     )
 
     val res = LLMConnect.getClient(LLMProvider.Azure, wrongCfg)
+    res.isLeft shouldBe true
+  }
+
+  test("Zai provider with non-ZaiConfig should throw IllegalArgumentException") {
+    val wrongCfg: ProviderConfig = OpenAIConfig(
+      apiKey = "key",
+      model = "gpt-4o",
+      organization = None,
+      baseUrl = "https://api.openai.com/v1",
+      contextWindow = 128000,
+      reserveCompletion = 4096
+    )
+
+    val res = LLMConnect.getClient(LLMProvider.Zai, wrongCfg)
     res.isLeft shouldBe true
   }
 }

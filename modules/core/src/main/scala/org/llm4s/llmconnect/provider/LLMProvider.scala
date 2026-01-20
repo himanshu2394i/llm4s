@@ -18,6 +18,7 @@ sealed trait LLMProvider {
     case LLMProvider.Anthropic  => "anthropic"
     case LLMProvider.OpenRouter => "openrouter"
     case LLMProvider.Ollama     => "ollama"
+    case LLMProvider.Zai        => "zai"
   }
 }
 
@@ -66,8 +67,16 @@ object LLMProvider {
    */
   case object Ollama extends LLMProvider
 
+  /**
+   * Z.ai (ZhipuAI) provider for GLM models.
+   *
+   * Provides access to GLM-4 series models via OpenAI-compatible API.
+   * Supports GLM-4.7 and GLM-4.5-air models.
+   */
+  case object Zai extends LLMProvider
+
   /** All available providers */
-  val all: Seq[LLMProvider] = Seq(OpenAI, Azure, Anthropic, OpenRouter, Ollama)
+  val all: Seq[LLMProvider] = Seq(OpenAI, Azure, Anthropic, OpenRouter, Ollama, Zai)
 
   /**
    * Parses a provider name string to LLMProvider.
@@ -81,6 +90,7 @@ object LLMProvider {
     case "anthropic"  => Some(Anthropic)
     case "openrouter" => Some(OpenRouter)
     case "ollama"     => Some(Ollama)
+    case "zai"        => Some(Zai)
     case _            => None
   }
 }

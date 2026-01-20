@@ -19,6 +19,8 @@ object LLMConnect {
         AnthropicClient(cfg)
       case cfg: OllamaConfig =>
         OllamaClient(cfg)
+      case cfg: ZaiConfig =>
+        ZaiClient(cfg)
     }
 
   // Typed-config entry: build client directly from ProviderConfig
@@ -32,6 +34,7 @@ object LLMConnect {
       case (LLMProvider.Azure, cfg: AzureConfig)         => OpenAIClient(cfg)
       case (LLMProvider.Anthropic, cfg: AnthropicConfig) => AnthropicClient(cfg)
       case (LLMProvider.Ollama, cfg: OllamaConfig)       => OllamaClient(cfg)
+      case (LLMProvider.Zai, cfg: ZaiConfig)             => ZaiClient(cfg)
       case (prov, wrongCfg) =>
         val cfgType = wrongCfg.getClass.getSimpleName
         val msg     = s"Invalid config type $cfgType for provider $prov"

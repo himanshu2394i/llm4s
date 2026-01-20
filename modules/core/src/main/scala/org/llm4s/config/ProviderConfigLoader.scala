@@ -30,12 +30,18 @@ private[config] object ProviderConfigLoader {
     baseUrl: Option[String]
   )
 
+  final private case class ZaiSection(
+    baseUrl: Option[String],
+    apiKey: Option[String]
+  )
+
   final private case class ProviderRoot(
     llm: LlmSection,
     openai: Option[OpenAISection],
     azure: Option[AzureSection],
     anthropic: Option[AnthropicSection],
-    ollama: Option[OllamaSection]
+    ollama: Option[OllamaSection],
+    zai: Option[ZaiSection]
   )
 
   implicit private val llmSectionReader: PureConfigReader[LlmSection] =
@@ -53,8 +59,11 @@ private[config] object ProviderConfigLoader {
   implicit private val ollamaSectionReader: PureConfigReader[OllamaSection] =
     PureConfigReader.forProduct1("baseUrl")(OllamaSection.apply)
 
+  implicit private val zaiSectionReader: PureConfigReader[ZaiSection] =
+    PureConfigReader.forProduct2("baseUrl", "apiKey")(ZaiSection.apply)
+
   implicit private val providerRootReader: PureConfigReader[ProviderRoot] =
-    PureConfigReader.forProduct5("llm", "openai", "azure", "anthropic", "ollama")(ProviderRoot.apply)
+    PureConfigReader.forProduct6("llm", "openai", "azure", "anthropic", "ollama", "zai")(ProviderRoot.apply)
 
   def load(source: ConfigSource): Result[ProviderConfig] = {
     val rootEither = source.at("llm4s").load[ProviderRoot]
@@ -100,6 +109,7 @@ private[config] object ProviderConfigLoader {
         case "azure"      => buildAzureConfig(modelName, root.azure)
         case "anthropic"  => buildAnthropicConfig(modelName, root.anthropic)
         case "ollama"     => buildOllamaConfig(modelName, root.ollama)
+        case "zai"        => buildZaiConfig(modelName, root.zai)
         case other if other.nonEmpty =>
           Left(ConfigurationError(s"Unknown provider prefix: $other in '$modelSpec'"))
         case _ =>
@@ -211,6 +221,30 @@ private[config] object ProviderConfigLoader {
         Left(
           ConfigurationError(
             "Ollama provider selected but llm4s.ollama section is missing"
+          )
+        )
+    }
+
+  private def buildZaiConfig(modelName: String, section: Option[ZaiSection]): Result[ProviderConfig] =
+    section match {
+      case Some(zai) =>
+        val apiKeyOpt = zai.apiKey.map(_.trim).filter(_.nonEmpty)
+        val apiKeyResult: Result[String] =
+          apiKeyOpt.toRight(
+            ConfigurationError("Missing Z.ai API key (llm4s.zai.apiKey / ZAI_API_KEY)")
+          )
+
+        apiKeyResult.map { apiKey =>
+          val baseUrl =
+            zai.baseUrl.map(_.trim).filter(_.nonEmpty).getOrElse(ZaiConfig.DEFAULT_BASE_URL)
+
+          ZaiConfig.fromValues(modelName, apiKey, baseUrl)
+        }
+
+      case None =>
+        Left(
+          ConfigurationError(
+            "Z.ai provider selected but llm4s.zai section is missing"
           )
         )
     }
