@@ -51,35 +51,6 @@ import org.llm4s.llmconnect.model._
 object BasicLLMCallingExample {
 
   def main(args: Array[String]): Unit = {
-    // Debug: Print environment variables
-    println("\n🔍 Debug: LLM Configuration")
-    println("=========================")
-    
-    // Print relevant environment variables (masking sensitive values)
-    val llmModel = sys.env.get("LLM_MODEL")
-    println(s"LLM_MODEL: ${llmModel.getOrElse("NOT SET")}")
-    
-    llmModel.foreach { model =>
-      if (model.startsWith("openai/")) {
-        println(s"OPENAI_API_KEY: ${sys.env.get("OPENAI_API_KEY").map(key => if (key.nonEmpty) s"${key.take(8)}..." else "EMPTY").getOrElse("NOT SET")}")
-        println(s"OPENAI_BASE_URL: ${sys.env.get("OPENAI_BASE_URL").getOrElse("DEFAULT (https://api.openai.com)")}")
-      } else if (model.startsWith("anthropic/")) {
-        println(s"ANTHROPIC_API_KEY: ${sys.env.get("ANTHROPIC_API_KEY").map(key => if (key.nonEmpty) s"${key.take(8)}..." else "EMPTY").getOrElse("NOT SET")}")
-        println(s"ANTHROPIC_BASE_URL: ${sys.env.get("ANTHROPIC_BASE_URL").getOrElse("DEFAULT (https://api.anthropic.com)")}")
-      } else if (model.startsWith("azure/")) {
-        println(s"AZURE_API_KEY: ${sys.env.get("AZURE_API_KEY").map(key => if (key.nonEmpty) s"${key.take(8)}..." else "EMPTY").getOrElse("NOT SET")}")
-        println(s"AZURE_API_BASE: ${sys.env.get("AZURE_API_BASE").getOrElse("NOT SET")}")
-        println(s"AZURE_API_VERSION: ${sys.env.get("AZURE_API_VERSION").getOrElse("NOT SET")}")
-      } else if (model.startsWith("ollama/")) {
-        println(s"OLLAMA_BASE_URL: ${sys.env.get("OLLAMA_BASE_URL").getOrElse("DEFAULT (http://localhost:11434)")}")
-      } else if (model.startsWith("zai/")) {
-        println(s"ZAI_API_KEY: ${sys.env.get("ZAI_API_KEY").map(key => if (key.nonEmpty) s"${key.take(8)}..." else "EMPTY").getOrElse("NOT SET")}")
-        println(s"ZAI_BASE_URL: ${sys.env.get("ZAI_BASE_URL").getOrElse("DEFAULT (https://api.z.ai/api/paas/v4)")}")
-      }
-    }
-    
-    println("=========================\n")
-    
     // Create a multi-turn conversation demonstrating different message types
     val conversation = Conversation(
       Seq(
@@ -112,26 +83,6 @@ object BasicLLMCallingExample {
     val result = for {
       // Load provider configuration (model, base URL, API key, etc.)
       providerCfg <- Llm4sConfig.provider()
-      _ = {
-        println("\n📋 Loaded Configuration:")
-        println(s"Provider: ${providerCfg.getClass.getSimpleName}")
-        println(s"Model: ${providerCfg.model}")
-        providerCfg match {
-          case cfg: org.llm4s.llmconnect.config.OpenAIConfig =>
-            println(s"Base URL: ${cfg.baseUrl}")
-            println(s"Organization: ${cfg.organization.getOrElse("None")}")
-          case cfg: org.llm4s.llmconnect.config.AnthropicConfig =>
-            println(s"Base URL: ${cfg.baseUrl}")
-          case cfg: org.llm4s.llmconnect.config.AzureConfig =>
-            println(s"Endpoint: ${cfg.endpoint}")
-            println(s"API Version: ${cfg.apiVersion}")
-          case cfg: org.llm4s.llmconnect.config.OllamaConfig =>
-            println(s"Base URL: ${cfg.baseUrl}")
-          case cfg: org.llm4s.llmconnect.config.ZaiConfig =>
-            println(s"Base URL: ${cfg.baseUrl}")
-        }
-        println()
-      }
       // Build LLM client from typed provider config
       client <- LLMConnect.getClient(providerCfg)
       // Make the completion request

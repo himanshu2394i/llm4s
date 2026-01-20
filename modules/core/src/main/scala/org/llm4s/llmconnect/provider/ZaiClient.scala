@@ -18,18 +18,18 @@ import scala.util.Try
 
 class ZaiClient(config: ZaiConfig) extends LLMClient {
   private val httpClient = HttpClient.newHttpClient()
-  private val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+  private val logger     = org.slf4j.LoggerFactory.getLogger(getClass)
 
   override def complete(
     conversation: Conversation,
     options: CompletionOptions
   ): Result[Completion] = {
     val requestBody = createRequestBody(conversation, options)
-    
+
     // Log the request for debugging
     logger.debug(s"Sending request to Z.ai API at ${config.baseUrl}/chat/completions")
     logger.debug(s"Request body: ${requestBody.render()}")
-    
+
     // Also print to console for immediate debugging
     println("\n🔍 Z.ai API Request Debug:")
     println(s"URL: ${config.baseUrl}/chat/completions")
@@ -48,17 +48,17 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
           .build()
 
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
-        
+
         // Log response details for debugging
         logger.debug(s"Response status: ${response.statusCode()}")
         logger.debug(s"Response body: ${response.body()}")
-        
+
         // Also print response to console
         println(s"🔍 Z.ai API Response Debug:")
         println(s"Status: ${response.statusCode()}")
         println(s"Body: ${response.body()}")
         println()
-        
+
         response
       }.toEither.left
         .map(_.toLLMError)
@@ -150,11 +150,7 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
       val content = delta.obj.get("content").flatMap { content =>
         content.strOpt.orElse {
           // Handle array format: [{"type": "text", "text": "..."}]
-          content.arrOpt.flatMap { arr =>
-            arr.headOption.flatMap { obj =>
-              obj.obj.get("text").flatMap(_.strOpt)
-            }
-          }
+          content.arrOpt.flatMap(arr => arr.headOption.flatMap(obj => obj.obj.get("text").flatMap(_.strOpt)))
         }
       }
 
@@ -216,7 +212,10 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
       case SystemMessage(content) =>
         ujson.Obj("role" -> "system", "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> ujson.Str(content))))
       case AssistantMessage(content, toolCalls) =>
-        val base = ujson.Obj("role" -> "assistant", "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> ujson.Str(content.getOrElse("")))))
+        val base = ujson.Obj(
+          "role"    -> "assistant",
+          "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> ujson.Str(content.getOrElse(""))))
+        )
         if (toolCalls.nonEmpty) {
           base("tool_calls") = ujson.Arr.from(toolCalls.map { tc =>
             ujson.Obj(
@@ -270,11 +269,9 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
       case Some(content) =>
         content.strOpt.getOrElse {
           // Handle array format: [{"type": "text", "text": "..."}]
-          content.arrOpt.flatMap { arr =>
-            arr.headOption.flatMap { obj =>
-              obj.obj.get("text").flatMap(_.strOpt)
-            }
-          }.getOrElse("")
+          content.arrOpt
+            .flatMap(arr => arr.headOption.flatMap(obj => obj.obj.get("text").flatMap(_.strOpt)))
+            .getOrElse("")
         }
       case None => ""
     }
