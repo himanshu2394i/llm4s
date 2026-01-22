@@ -86,7 +86,11 @@ class OpenAIClient private (
         dropUnsupported = true
       )
       transformedConversation = conversation.copy(messages = transformed.messages)
-      chatOptions             = prepareChatOptions(transformedConversation, transformed.options, transformed.requiresMaxCompletionTokens)
+      chatOptions = prepareChatOptions(
+        transformedConversation,
+        transformed.options,
+        transformed.requiresMaxCompletionTokens
+      )
       completions <- Try(client.getChatCompletions(model, chatOptions)).toEither.left.map(e => e.toLLMError)
     } yield convertFromOpenAIFormat(completions)
 
@@ -99,7 +103,8 @@ class OpenAIClient private (
     TransformationResult.transform(model, options, conversation.messages, dropUnsupported = true).flatMap {
       transformed =>
         val transformedConversation = conversation.copy(messages = transformed.messages)
-        val chatOptions             = prepareChatOptions(transformedConversation, transformed.options, transformed.requiresMaxCompletionTokens)
+        val chatOptions =
+          prepareChatOptions(transformedConversation, transformed.options, transformed.requiresMaxCompletionTokens)
 
         // Create accumulator for building the final completion
         val accumulator = StreamingAccumulator.create()
