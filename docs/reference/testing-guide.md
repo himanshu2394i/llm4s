@@ -5,11 +5,11 @@ nav_order: 8
 parent: Reference
 ---
 
-# Testing Guide (Contributor‑Focused)
+# Testing Guide (Contributor-Focused)
 
 This guide explains **how contributors should write, run, and reason about tests in LLM4S**. It is intended for contributors adding new features, fixing bugs, or refactoring existing code.
 
-> This guide focuses on *test design and contributor practices*. For coverage tooling, thresholds, and CI enforcement, see the [Test Coverage (scoverage)](../reference/test-coverage) guide.
+> This guide focuses on *test design and contributor practices*. For coverage tooling, thresholds, and CI enforcement, see the [Test Coverage (scoverage)](test-coverage) guide.
 
 ---
 
@@ -115,6 +115,16 @@ Avoid:
 * One assertion intent per test
 * Avoid large, multi-purpose tests
 
+### Use `Result[A]` for Assertions
+
+LLM4S uses `Result[A]` (an alias for `Either[LLMError, A]`) for error handling. When testing functions that return `Result`:
+
+```scala
+result shouldBe Right(expected)           // Success case
+result shouldBe a[Left[_, _]]             // Failure case
+result.left.value shouldBe a[SomeError]   // Specific error type
+```
+
 ### Name Tests Clearly
 
 Test names should read like documentation:
@@ -164,7 +174,8 @@ For streaming responses:
 Common commands:
 
 ```bash
-sbt test
+sbt test           # Run tests for default Scala version
+sbt +test          # Run tests for all Scala versions (2.13 and 3.x)
 ```
 
 To run a specific suite:
@@ -178,6 +189,8 @@ To run tests continuously:
 ```bash
 sbt ~test
 ```
+
+> **Cross-compilation note:** LLM4S supports Scala 2.13 and 3.x. Before submitting a PR, run `sbt +test` to ensure compatibility across both versions.
 
 ---
 
