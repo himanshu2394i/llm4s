@@ -26,15 +26,8 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
   ): Result[Completion] = {
     val requestBody = createRequestBody(conversation, options)
 
-    // Log the request for debugging
     logger.debug(s"Sending request to Z.ai API at ${config.baseUrl}/chat/completions")
     logger.debug(s"Request body: ${requestBody.render()}")
-
-    // Also print to console for immediate debugging
-    println("\n🔍 Z.ai API Request Debug:")
-    println(s"URL: ${config.baseUrl}/chat/completions")
-    println(s"Request body: ${requestBody.render()}")
-    println()
 
     val attempt =
       Try {
@@ -49,15 +42,8 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
 
         val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 
-        // Log response details for debugging
         logger.debug(s"Response status: ${response.statusCode()}")
         logger.debug(s"Response body: ${response.body()}")
-
-        // Also print response to console
-        println(s"🔍 Z.ai API Response Debug:")
-        println(s"Status: ${response.statusCode()}")
-        println(s"Body: ${response.body()}")
-        println()
 
         response
       }.toEither.left
@@ -85,59 +71,59 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
 
     val accumulator = StreamingAccumulator.create()
 
-    val attempt =
-      Try {
-        val request = HttpRequest
-          .newBuilder()
-          .uri(URI.create(s"${config.baseUrl}/chat/completions"))
-          .header("Content-Type", "application/json")
-          .header("Authorization", s"Bearer ${config.apiKey}")
-          .header("User-Agent", "llm4s-coding-assistant/1.0")
-          .timeout(Duration.ofMinutes(5))
-          .POST(HttpRequest.BodyPublishers.ofString(requestBody.render()))
-          .build()
+    val requestResult = Try {
+      val request = HttpRequest
+        .newBuilder()
+        .uri(URI.create(s"${config.baseUrl}/chat/completions"))
+        .header("Content-Type", "application/json")
+        .header("Authorization", s"Bearer ${config.apiKey}")
+        .header("User-Agent", "llm4s-coding-assistant/1.0")
+        .timeout(Duration.ofMinutes(5))
+        .POST(HttpRequest.BodyPublishers.ofString(requestBody.render()))
+        .build()
 
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
+      httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
+    }.toEither.left.map(_.toLLMError)
 
-        if (response.statusCode() != 200) {
-          val errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8)
-          response.statusCode() match {
-            case 401 => throw new RuntimeException(AuthenticationError("zai", "Invalid API key").formatted)
-            case 429 => throw new RuntimeException(RateLimitError("zai").formatted)
-            case status =>
-              throw new RuntimeException(
-                s"${ServiceError(status, "zai", s"Z.ai API error: $errorBody").formatted}"
-              )
-          }
+    requestResult.flatMap { response =>
+      if (response.statusCode() != 200) {
+        val errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8)
+        response.statusCode() match {
+          case 401    => Left(AuthenticationError("zai", "Invalid API key"))
+          case 429    => Left(RateLimitError("zai"))
+          case status => Left(ServiceError(status, "zai", s"Z.ai API error: $errorBody"))
         }
-
-        val sseParser = SSEParser.createStreamingParser()
-        val reader    = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))
-        val loopTry = Try {
-          var line: String = null
-          while ({ line = reader.readLine(); line != null }) {
-            sseParser.addChunk(line + "\n")
-            while (sseParser.hasEvents)
-              sseParser.nextEvent().foreach { event =>
-                event.data.foreach { data =>
-                  if (data != "[DONE]") {
-                    val json   = ujson.read(data)
-                    val chunks = parseStreamingChunks(json)
-                    chunks.foreach { c =>
-                      accumulator.addChunk(c)
-                      onChunk(c)
+      } else {
+        val streamResult = Try {
+          val sseParser = SSEParser.createStreamingParser()
+          val reader    = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))
+          try {
+            var line: String = null
+            while ({ line = reader.readLine(); line != null }) {
+              sseParser.addChunk(line + "\n")
+              while (sseParser.hasEvents)
+                sseParser.nextEvent().foreach { event =>
+                  event.data.foreach { data =>
+                    if (data != "[DONE]") {
+                      val json   = ujson.read(data)
+                      val chunks = parseStreamingChunks(json)
+                      chunks.foreach { c =>
+                        accumulator.addChunk(c)
+                        onChunk(c)
+                      }
                     }
                   }
                 }
-              }
+            }
+          } finally {
+            Try(reader.close())
+            Try(response.body().close())
           }
-        }
-        Try(reader.close()); Try(response.body().close())
-        loopTry.get
-      }.toEither.left
-        .map(_.toLLMError)
+        }.toEither.left.map(_.toLLMError)
 
-    attempt.flatMap(_ => accumulator.toCompletion)
+        streamResult.flatMap(_ => accumulator.toCompletion)
+      }
+    }
   }
 
   private def parseStreamingChunks(json: ujson.Value): Seq[StreamedChunk] = {
@@ -212,10 +198,11 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
       case SystemMessage(content) =>
         ujson.Obj("role" -> "system", "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> ujson.Str(content))))
       case AssistantMessage(content, toolCalls) =>
-        val base = ujson.Obj(
-          "role"    -> "assistant",
-          "content" -> ujson.Arr(ujson.Obj("type" -> "text", "text" -> ujson.Str(content.getOrElse(""))))
-        )
+        val base = ujson.Obj("role" -> "assistant")
+        // Only include content if non-empty (Z.ai rejects empty text)
+        content.filter(_.nonEmpty).foreach { c =>
+          base("content") = ujson.Arr(ujson.Obj("type" -> "text", "text" -> ujson.Str(c)))
+        }
         if (toolCalls.nonEmpty) {
           base("tool_calls") = ujson.Arr.from(toolCalls.map { tc =>
             ujson.Obj(
@@ -260,8 +247,9 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
     val choice  = json("choices")(0)
     val message = choice("message")
 
-    val toolCalls = Option(message.obj.get("tool_calls"))
-      .map(tc => parseToolCalls(tc))
+    val toolCalls = message.obj
+      .get("tool_calls")
+      .map(parseToolCalls)
       .getOrElse(Seq.empty)
 
     // Extract content from array format if needed
@@ -306,10 +294,11 @@ class ZaiClient(config: ZaiConfig) extends LLMClient {
   private def parseToolCalls(toolCallsJson: ujson.Value): Seq[ToolCall] =
     toolCallsJson.arr.map { call =>
       val function = call("function")
+      val argsStr  = function.obj.get("arguments").flatMap(_.strOpt).getOrElse("{}")
       ToolCall(
         id = call.obj.get("id").flatMap(_.strOpt).getOrElse(""),
         name = function.obj.get("name").flatMap(_.strOpt).getOrElse(""),
-        arguments = function.obj.get("arguments").getOrElse(ujson.Str(""))
+        arguments = Try(ujson.read(argsStr)).getOrElse(ujson.Obj())
       )
     }.toSeq
 
