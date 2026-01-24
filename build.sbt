@@ -158,7 +158,10 @@ lazy val core = (project in file("modules/core"))
       Deps.config,
       Deps.hikariCP,
       Deps.awsS3,
-      Deps.awsSts
+      Deps.awsSts,
+      Deps.opentelemetryApi,
+      Deps.opentelemetrySdk,
+      Deps.opentelemetryExporterOtlp
     )
   )
 

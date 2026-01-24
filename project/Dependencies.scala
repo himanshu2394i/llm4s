@@ -38,6 +38,7 @@ object Versions {
 
   // AWS SDK
   val awsSdk     = "2.29.51"
+  val opentelemetry = "1.34.1"
 }
 
 object Deps {
@@ -77,6 +78,10 @@ object Deps {
   // AWS SDK
   val awsS3      = "software.amazon.awssdk" % "s3"  % Versions.awsSdk
   val awsSts     = "software.amazon.awssdk" % "sts" % Versions.awsSdk
+
+  val opentelemetryApi = "io.opentelemetry" % "opentelemetry-api" % Versions.opentelemetry
+  val opentelemetrySdk = "io.opentelemetry" % "opentelemetry-sdk" % Versions.opentelemetry
+  val opentelemetryExporterOtlp = "io.opentelemetry" % "opentelemetry-exporter-otlp" % Versions.opentelemetry
 }
 
 object Common {

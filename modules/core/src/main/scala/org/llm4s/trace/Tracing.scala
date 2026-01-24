@@ -256,11 +256,13 @@ sealed trait TracingMode extends Product with Serializable
 object TracingMode {
   case object Langfuse extends TracingMode
   case object Console  extends TracingMode
+  case object OpenTelemetry extends TracingMode
   case object NoOp     extends TracingMode
 
   def fromString(mode: String): TracingMode = mode.toLowerCase match {
     case "langfuse"          => Langfuse
     case "console" | "print" => Console
+    case "opentelemetry" | "otel" => OpenTelemetry
     case "noop" | "none"     => NoOp
     case _                   => NoOp
   }
@@ -301,6 +303,8 @@ object Tracing {
         lf.release,
         lf.version
       )
+    case TracingMode.OpenTelemetry =>
+      OpenTelemetryTracing.from(settings.openTelemetry)
     case TracingMode.Console => new ConsoleTracing()
     case TracingMode.NoOp    => new NoOpTracing()
   }
