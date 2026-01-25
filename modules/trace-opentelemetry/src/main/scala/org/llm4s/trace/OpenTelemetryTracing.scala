@@ -59,6 +59,14 @@ class OpenTelemetryTracing(
     (openTelemetry, tracer)
   }.toEither
 
+  // Log initialization failure if any
+  initializationResult match {
+    case Left(error) => 
+      org.slf4j.LoggerFactory.getLogger(getClass).error("Failed to initialize OpenTelemetry tracing", error)
+    case Right(_) => 
+      // Initialized successfully
+  }
+
   private val tracer: Option[Tracer] = initializationResult.map(_._2).toOption
 
   override def shutdown(): Unit =
@@ -111,7 +119,7 @@ class OpenTelemetryTracing(
           Attributes
             .builder()
             .put(TraceAttributes.EventType, "trace-create")
-            .put("input", e.query)
+            .put("input", e.query.take(1000)) // Truncate sensitive input
             .put("tools", e.tools.mkString(", "))
             .build()
         )
@@ -125,7 +133,7 @@ class OpenTelemetryTracing(
             .put("model", e.model)
             .put("completion_id", e.id)
             .put("tool_calls", e.toolCalls.toLong)
-            .put("content", e.content)
+            .put("content", e.content.take(1000)) // Truncate potentially large/sensitive content
             .build()
         )
 

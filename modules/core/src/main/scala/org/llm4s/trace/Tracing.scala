@@ -45,7 +45,7 @@ import org.llm4s.types.Result
  * @see [[TraceEvent]] for available event types
  * @see [[TracingComposer]] for composition utilities
  */
-trait Tracing extends AutoCloseable {
+trait Tracing {
   def traceEvent(event: TraceEvent): Result[Unit]
   def traceAgentState(state: AgentState): Result[Unit]
   def traceToolCall(toolName: String, input: String, output: String): Result[Unit]
@@ -125,11 +125,6 @@ trait Tracing extends AutoCloseable {
     )
     this.traceEvent(event)
   }
-
-  /**
-   * Close the tracing backend and flush any pending events.
-   */
-  override def close(): Unit = shutdown()
 
   /**
    * Shutdown the tracing backend.
@@ -230,7 +225,7 @@ private class CompositeTracing(tracers: Vector[Tracing]) extends Tracing {
     traceEvent(event)
   }
 
-  override def close(): Unit = tracers.foreach(_.close())
+  override def shutdown(): Unit = tracers.foreach(_.shutdown())
 }
 
 private class FilteredTracing(underlying: Tracing, predicate: TraceEvent => Boolean) extends Tracing {
@@ -246,7 +241,7 @@ private class FilteredTracing(underlying: Tracing, predicate: TraceEvent => Bool
   def traceTokenUsage(usage: TokenUsage, model: String, operation: String): Result[Unit] =
     underlying.traceTokenUsage(usage, model, operation)
 
-  override def close(): Unit = underlying.close()
+  override def shutdown(): Unit = underlying.shutdown()
 }
 
 private class TransformedTracing(underlying: Tracing, transform: TraceEvent => TraceEvent) extends Tracing {
@@ -262,7 +257,7 @@ private class TransformedTracing(underlying: Tracing, transform: TraceEvent => T
   def traceTokenUsage(usage: TokenUsage, model: String, operation: String): Result[Unit] =
     underlying.traceTokenUsage(usage, model, operation)
 
-  override def close(): Unit = underlying.close()
+  override def shutdown(): Unit = underlying.shutdown()
 }
 
 /**
@@ -320,9 +315,8 @@ object Tracing {
         lf.release,
         lf.version
       )
-    case TracingMode.OpenTelemetry =>
-      OpenTelemetryTracing.from(settings.openTelemetry)
     case TracingMode.Console => new ConsoleTracing()
     case TracingMode.NoOp    => new NoOpTracing()
+    case _                   => new NoOpTracing() // Fallback for unknown modes (e.g. Otel if not loaded manually)
   }
 }
