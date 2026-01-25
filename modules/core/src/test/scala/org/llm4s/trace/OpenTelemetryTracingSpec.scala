@@ -18,16 +18,16 @@ class OpenTelemetryTracingSpec extends AnyFlatSpec with Matchers {
       endpoint = "http://localhost:4317",
       headers = Map.empty
     )
-    
+
     val tracing = OpenTelemetryTracing.from(config)
     tracing should not be null
-    
-    // Verify that traceEvent handles the event without throwing, 
+
+    // Verify that traceEvent handles the event without throwing,
     // even if the backend likely won't connect to anything.
     noException should be thrownBy {
       tracing.traceEvent("TestEvent")
     }
-    
+
     tracing.shutdown()
   }
 }

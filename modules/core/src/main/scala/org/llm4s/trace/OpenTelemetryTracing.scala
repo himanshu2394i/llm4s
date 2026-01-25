@@ -38,7 +38,8 @@ class OpenTelemetryTracing(
       spanExporterBuilder.addHeader(k, v)
     }
 
-    val spanProcessor = BatchSpanProcessor.builder(spanExporterBuilder.build())
+    val spanProcessor = BatchSpanProcessor
+      .builder(spanExporterBuilder.build())
       .setMaxExportBatchSize(512)
       .setScheduleDelay(5, TimeUnit.SECONDS)
       .build()
@@ -60,24 +61,26 @@ class OpenTelemetryTracing(
 
   private val tracer: Option[Tracer] = initializationResult.map(_._2).toOption
 
-  override def shutdown(): Unit = {
+  override def shutdown(): Unit =
     initializationResult.foreach { case (sdk, _) =>
       val provider = sdk.getSdkTracerProvider
       provider.shutdown().join(10, TimeUnit.SECONDS)
     }
-  }
 
-  override def traceEvent(event: TraceEvent): Result[Unit] = {
+  override def traceEvent(event: TraceEvent): Result[Unit] =
     tracer match {
       case Some(t) =>
         val (spanName, attributes) = mapEventToAttributes(event)
 
-        val spanBuilder = t.spanBuilder(spanName)
+        val spanBuilder = t
+          .spanBuilder(spanName)
           .setAllAttributes(attributes)
 
-        if (event.isInstanceOf[TraceEvent.AgentInitialized] ||
-            event.isInstanceOf[TraceEvent.AgentStateUpdated] ||
-            event.isInstanceOf[TraceEvent.TokenUsageRecorded]) {
+        if (
+          event.isInstanceOf[TraceEvent.AgentInitialized] ||
+          event.isInstanceOf[TraceEvent.AgentStateUpdated] ||
+          event.isInstanceOf[TraceEvent.TokenUsageRecorded]
+        ) {
           spanBuilder.setSpanKind(SpanKind.INTERNAL)
         } else {
           spanBuilder.setSpanKind(SpanKind.CLIENT)
@@ -85,22 +88,20 @@ class OpenTelemetryTracing(
 
         val span = spanBuilder.startSpan()
 
-        try {
+        try
           if (spanName == "Error") {
             event match {
               case e: TraceEvent.ErrorOccurred => span.recordException(e.error)
               case _                           =>
             }
           }
-        } finally {
+        finally
           span.end()
-        }
         Right(())
 
       case None =>
         Right(())
     }
-  }
 
   private def mapEventToAttributes(event: TraceEvent): (String, Attributes) = {
     event match {
@@ -236,15 +237,17 @@ class OpenTelemetryTracing(
   }
 
   override def traceAgentState(state: AgentState): Result[Unit] = {
-    val spanBuilder = tracer.map(_.spanBuilder("Agent State Snapshot")
-      .setAttribute("status", state.status.toString)
-      .setAttribute("message_count", state.conversation.messages.length.toLong)
-      .setAttribute("log_count", state.logs.length.toLong)
-      .setSpanKind(SpanKind.INTERNAL))
+    val spanBuilder = tracer.map(
+      _.spanBuilder("Agent State Snapshot")
+        .setAttribute("status", state.status.toString)
+        .setAttribute("message_count", state.conversation.messages.length.toLong)
+        .setAttribute("log_count", state.logs.length.toLong)
+        .setSpanKind(SpanKind.INTERNAL)
+    )
 
     spanBuilder.foreach { sb =>
-       val span = sb.startSpan()
-       span.end()
+      val span = sb.startSpan()
+      span.end()
     }
     Right(())
   }
@@ -277,7 +280,7 @@ class OpenTelemetryTracing(
 
 private object TraceAttributes {
   val EventType = AttributeKey.stringKey("event.type")
-  val ToolName = AttributeKey.stringKey("tool.name")
+  val ToolName  = AttributeKey.stringKey("tool.name")
 }
 
 object OpenTelemetryTracing {
