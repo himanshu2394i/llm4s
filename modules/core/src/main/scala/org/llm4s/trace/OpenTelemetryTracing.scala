@@ -15,15 +15,17 @@ import org.llm4s.llmconnect.model.Completion
 import org.llm4s.llmconnect.model.TokenUsage
 import org.llm4s.types.Result
 
+import java.util.concurrent.TimeUnit
+import scala.util.Try
+
 class OpenTelemetryTracing(
   serviceName: String,
   endpoint: String,
   headers: Map[String, String]
 ) extends Tracing {
 
-  private val tracer: Tracer = initializeTracer()
-
-  private def initializeTracer(): Tracer = {
+  // Initialize OpenTelemetry SDK and Tracer, deferring errors to usage
+  private val initializationResult: Either[Throwable, (OpenTelemetrySdk, Tracer)] = Try {
     val resource = Resource.getDefault.toBuilder
       .put(AttributeKey.stringKey("service.name"), serviceName)
       .build()
@@ -36,7 +38,10 @@ class OpenTelemetryTracing(
       spanExporterBuilder.addHeader(k, v)
     }
 
-    val spanProcessor = BatchSpanProcessor.builder(spanExporterBuilder.build()).build()
+    val spanProcessor = BatchSpanProcessor.builder(spanExporterBuilder.build())
+      .setMaxExportBatchSize(512)
+      .setScheduleDelay(5, TimeUnit.SECONDS)
+      .build()
 
     val tracerProvider = SdkTracerProvider
       .builder()
@@ -47,19 +52,64 @@ class OpenTelemetryTracing(
     val openTelemetry = OpenTelemetrySdk
       .builder()
       .setTracerProvider(tracerProvider)
-      .buildAndRegisterGlobal()
+      .build()
 
-    openTelemetry.getTracer("org.llm4s")
+    val tracer = openTelemetry.getTracer("org.llm4s")
+    (openTelemetry, tracer)
+  }.toEither
+
+  private val tracer: Option[Tracer] = initializationResult.map(_._2).toOption
+
+  override def shutdown(): Unit = {
+    initializationResult.foreach { case (sdk, _) =>
+      val provider = sdk.getSdkTracerProvider
+      provider.shutdown().join(10, TimeUnit.SECONDS)
+    }
   }
 
   override def traceEvent(event: TraceEvent): Result[Unit] = {
-    val (spanName, attributes) = event match {
+    tracer match {
+      case Some(t) =>
+        val (spanName, attributes) = mapEventToAttributes(event)
+
+        val spanBuilder = t.spanBuilder(spanName)
+          .setAllAttributes(attributes)
+
+        if (event.isInstanceOf[TraceEvent.AgentInitialized] ||
+            event.isInstanceOf[TraceEvent.AgentStateUpdated] ||
+            event.isInstanceOf[TraceEvent.TokenUsageRecorded]) {
+          spanBuilder.setSpanKind(SpanKind.INTERNAL)
+        } else {
+          spanBuilder.setSpanKind(SpanKind.CLIENT)
+        }
+
+        val span = spanBuilder.startSpan()
+
+        try {
+          if (spanName == "Error") {
+            event match {
+              case e: TraceEvent.ErrorOccurred => span.recordException(e.error)
+              case _                           =>
+            }
+          }
+        } finally {
+          span.end()
+        }
+        Right(())
+
+      case None =>
+        Right(())
+    }
+  }
+
+  private def mapEventToAttributes(event: TraceEvent): (String, Attributes) = {
+    event match {
       case e: TraceEvent.AgentInitialized =>
         (
           "LLM4S Agent Run",
           Attributes
             .builder()
-            .put("event.type", "trace-create")
+            .put(TraceAttributes.EventType, "trace-create")
             .put("input", e.query)
             .put("tools", e.tools.mkString(", "))
             .build()
@@ -70,7 +120,7 @@ class OpenTelemetryTracing(
           "LLM Completion",
           Attributes
             .builder()
-            .put("event.type", "generation-create")
+            .put(TraceAttributes.EventType, "generation-create")
             .put("model", e.model)
             .put("completion_id", e.id)
             .put("tool_calls", e.toolCalls.toLong)
@@ -83,8 +133,8 @@ class OpenTelemetryTracing(
           s"Tool Execution: ${e.name}",
           Attributes
             .builder()
-            .put("event.type", "span-create")
-            .put("tool.name", e.name)
+            .put(TraceAttributes.EventType, "span-create")
+            .put(TraceAttributes.ToolName, e.name)
             .put("tool.input", e.input)
             .put("tool.output", e.output)
             .put("duration_ms", e.duration)
@@ -97,7 +147,7 @@ class OpenTelemetryTracing(
           "Error",
           Attributes
             .builder()
-            .put("event.type", "event-create")
+            .put(TraceAttributes.EventType, "event-create")
             .put("error.message", e.error.getMessage)
             .put("error.type", e.error.getClass.getSimpleName)
             .put("context", e.context)
@@ -109,7 +159,7 @@ class OpenTelemetryTracing(
           s"Token Usage - ${e.operation}",
           Attributes
             .builder()
-            .put("event.type", "event-create")
+            .put(TraceAttributes.EventType, "event-create")
             .put("model", e.model)
             .put("operation", e.operation)
             .put("tokens.prompt", e.usage.promptTokens.toLong)
@@ -123,7 +173,7 @@ class OpenTelemetryTracing(
           e.name,
           Attributes
             .builder()
-            .put("event.type", "custom")
+            .put(TraceAttributes.EventType, "custom")
             .put("data", e.data.toString())
             .build()
         )
@@ -133,7 +183,7 @@ class OpenTelemetryTracing(
           "Agent State Updated",
           Attributes
             .builder()
-            .put("event.type", "state-update")
+            .put(TraceAttributes.EventType, "state-update")
             .put("status", e.status)
             .put("message_count", e.messageCount.toLong)
             .put("log_count", e.logCount.toLong)
@@ -145,7 +195,7 @@ class OpenTelemetryTracing(
           s"Embedding Usage - ${e.operation}",
           Attributes
             .builder()
-            .put("event.type", "embedding-usage")
+            .put(TraceAttributes.EventType, "embedding-usage")
             .put("model", e.model)
             .put("operation", e.operation)
             .put("input_count", e.inputCount.toLong)
@@ -159,7 +209,7 @@ class OpenTelemetryTracing(
           s"Cost - ${e.operation}",
           Attributes
             .builder()
-            .put("event.type", "cost")
+            .put(TraceAttributes.EventType, "cost")
             .put("model", e.model)
             .put("operation", e.operation)
             .put("token_count", e.tokenCount.toLong)
@@ -173,7 +223,7 @@ class OpenTelemetryTracing(
           s"RAG ${e.operation}",
           Attributes
             .builder()
-            .put("event.type", "rag-operation")
+            .put(TraceAttributes.EventType, "rag-operation")
             .put("operation", e.operation)
             .put("duration_ms", e.durationMs)
             .put("embedding_tokens", e.embeddingTokens.map(_.toLong).getOrElse(0L))
@@ -183,35 +233,19 @@ class OpenTelemetryTracing(
             .build()
         )
     }
-
-    val span = tracer
-      .spanBuilder(spanName)
-      .setSpanKind(SpanKind.CLIENT)
-      .setAllAttributes(attributes)
-      .startSpan()
-
-    try
-      if (spanName == "Error") {
-        event match {
-          case e: TraceEvent.ErrorOccurred => span.recordException(e.error)
-          case _                           =>
-        }
-      }
-    finally
-      span.end()
-
-    Right(())
   }
 
   override def traceAgentState(state: AgentState): Result[Unit] = {
-    val span = tracer
-      .spanBuilder("Agent State Snapshot")
+    val spanBuilder = tracer.map(_.spanBuilder("Agent State Snapshot")
       .setAttribute("status", state.status.toString)
       .setAttribute("message_count", state.conversation.messages.length.toLong)
       .setAttribute("log_count", state.logs.length.toLong)
-      .startSpan()
+      .setSpanKind(SpanKind.INTERNAL))
 
-    span.end()
+    spanBuilder.foreach { sb =>
+       val span = sb.startSpan()
+       span.end()
+    }
     Right(())
   }
 
@@ -239,6 +273,11 @@ class OpenTelemetryTracing(
     val event = TraceEvent.TokenUsageRecorded(usage, model, operation)
     traceEvent(event)
   }
+}
+
+private object TraceAttributes {
+  val EventType = AttributeKey.stringKey("event.type")
+  val ToolName = AttributeKey.stringKey("tool.name")
 }
 
 object OpenTelemetryTracing {

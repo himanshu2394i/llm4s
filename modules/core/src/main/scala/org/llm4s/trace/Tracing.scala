@@ -45,7 +45,7 @@ import org.llm4s.types.Result
  * @see [[TraceEvent]] for available event types
  * @see [[TracingComposer]] for composition utilities
  */
-trait Tracing {
+trait Tracing extends AutoCloseable {
   def traceEvent(event: TraceEvent): Result[Unit]
   def traceAgentState(state: AgentState): Result[Unit]
   def traceToolCall(toolName: String, input: String, output: String): Result[Unit]
@@ -125,6 +125,17 @@ trait Tracing {
     )
     this.traceEvent(event)
   }
+
+  /**
+   * Close the tracing backend and flush any pending events.
+   */
+  override def close(): Unit = shutdown()
+
+  /**
+   * Shutdown the tracing backend.
+   * Alias for close() to maintain terminology consistency.
+   */
+  def shutdown(): Unit = {}
 }
 
 /**
@@ -218,6 +229,8 @@ private class CompositeTracing(tracers: Vector[Tracing]) extends Tracing {
     val event = TraceEvent.TokenUsageRecorded(usage, model, operation)
     traceEvent(event)
   }
+
+  override def close(): Unit = tracers.foreach(_.close())
 }
 
 private class FilteredTracing(underlying: Tracing, predicate: TraceEvent => Boolean) extends Tracing {
@@ -232,6 +245,8 @@ private class FilteredTracing(underlying: Tracing, predicate: TraceEvent => Bool
     underlying.traceCompletion(completion, model)
   def traceTokenUsage(usage: TokenUsage, model: String, operation: String): Result[Unit] =
     underlying.traceTokenUsage(usage, model, operation)
+
+  override def close(): Unit = underlying.close()
 }
 
 private class TransformedTracing(underlying: Tracing, transform: TraceEvent => TraceEvent) extends Tracing {
@@ -246,6 +261,8 @@ private class TransformedTracing(underlying: Tracing, transform: TraceEvent => T
     underlying.traceCompletion(completion, model)
   def traceTokenUsage(usage: TokenUsage, model: String, operation: String): Result[Unit] =
     underlying.traceTokenUsage(usage, model, operation)
+
+  override def close(): Unit = underlying.close()
 }
 
 /**
