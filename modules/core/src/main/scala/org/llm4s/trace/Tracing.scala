@@ -266,6 +266,8 @@ private class TransformedTracing(underlying: Tracing, transform: TraceEvent => T
 sealed trait TracingMode extends Product with Serializable
 
 object TracingMode {
+  private val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+
   case object Langfuse      extends TracingMode
   case object Console       extends TracingMode
   case object OpenTelemetry extends TracingMode
@@ -276,7 +278,9 @@ object TracingMode {
     case "console" | "print"      => Console
     case "opentelemetry" | "otel" => OpenTelemetry
     case "noop" | "none"          => NoOp
-    case _                        => NoOp
+    case other =>
+      logger.warn(s"Unknown tracing mode '$other', falling back to NoOp")
+      NoOp
   }
 }
 
@@ -315,8 +319,26 @@ object Tracing {
         lf.release,
         lf.version
       )
-    case TracingMode.Console => new ConsoleTracing()
-    case TracingMode.NoOp    => new NoOpTracing()
-    case _                   => new NoOpTracing() // Fallback for unknown modes (e.g. Otel if not loaded manually)
+    case TracingMode.Console       => new ConsoleTracing()
+    case TracingMode.OpenTelemetry =>
+      val ot = settings.openTelemetry
+      try {
+        val clazz = Class.forName("org.llm4s.trace.OpenTelemetryTracing")
+        val ctor  = clazz.getConstructor(classOf[String], classOf[String], classOf[Map[String, String]])
+        ctor.newInstance(ot.serviceName, ot.endpoint, ot.headers).asInstanceOf[Tracing]
+      } catch {
+        case _: ClassNotFoundException | _: NoClassDefFoundError =>
+          val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+          logger.error(
+            "OpenTelemetry tracing configured but 'trace-opentelemetry' module not found on classpath. " +
+              "Please add 'org.llm4s' %% 'llm4s-trace-opentelemetry' dependency. Falling back to NoOpTracing."
+          )
+          new NoOpTracing()
+        case e: Throwable =>
+          val logger = org.slf4j.LoggerFactory.getLogger(getClass)
+          logger.error("Failed to initialize OpenTelemetry tracing. Falling back to NoOpTracing.", e)
+          new NoOpTracing()
+      }
+    case TracingMode.NoOp          => new NoOpTracing()
   }
 }

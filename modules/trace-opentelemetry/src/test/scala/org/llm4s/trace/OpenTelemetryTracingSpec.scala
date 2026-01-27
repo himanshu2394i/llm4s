@@ -22,11 +22,11 @@ class OpenTelemetryTracingSpec extends AnyFlatSpec with Matchers {
     val tracing = OpenTelemetryTracing.from(config)
     tracing should not be null
 
-    // Verify that traceEvent handles the event without throwing,
-    // even if the backend likely won't connect to anything.
-    noException should be thrownBy {
-      tracing.traceEvent("TestEvent")
-    }
+    // We expect Right(()) because OpenTelemetry SDK handles connection failures asynchronously
+    // or we successfully returned Right(()) even if the backend is down.
+    // Init itself succeeds locally (it just builds the SDK).
+    val result = tracing.traceEvent(TraceEvent.CustomEvent("TestEvent", ujson.Obj()))
+    result shouldBe Right(())
 
     tracing.shutdown()
   }

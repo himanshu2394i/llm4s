@@ -10,6 +10,7 @@ import io.opentelemetry.sdk.resources.Resource
 import io.opentelemetry.sdk.trace.SdkTracerProvider
 import io.opentelemetry.sdk.trace.`export`.BatchSpanProcessor
 import org.llm4s.agent.AgentState
+import org.llm4s.error.UnknownError
 import org.llm4s.llmconnect.config.OpenTelemetryConfig
 import org.llm4s.llmconnect.model.Completion
 import org.llm4s.llmconnect.model.TokenUsage
@@ -108,7 +109,10 @@ class OpenTelemetryTracing(
         Right(())
 
       case None =>
-        Right(())
+        initializationResult match {
+          case Left(e) => Left(UnknownError("Failed to initialize OpenTelemetry", e))
+          case Right(_) => Right(()) // Should not happen
+        }
     }
 
   private def mapEventToAttributes(event: TraceEvent): (String, Attributes) = {
@@ -144,8 +148,8 @@ class OpenTelemetryTracing(
             .builder()
             .put(TraceAttributes.EventType, "span-create")
             .put(TraceAttributes.ToolName, e.name)
-            .put("tool.input", e.input)
-            .put("tool.output", e.output)
+            .put("tool.input", e.input.take(1000)) // Truncate potentially large/sensitive info
+            .put("tool.output", e.output.take(1000)) // Truncate potentially large/sensitive info
             .put("duration_ms", e.duration)
             .put("success", e.success)
             .build()

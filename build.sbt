@@ -123,7 +123,7 @@ lazy val commonSettings = Seq(
 
 // ---- projects ----
 lazy val llm4s = (project in file("."))
-  .aggregate(core, samples, workspaceShared, workspaceRunner, workspaceClient, workspaceSamples)
+  .aggregate(core, samples, workspaceShared, workspaceRunner, workspaceClient, workspaceSamples, traceOpentelemetry)
   .settings(
     publish / skip := true
   )
