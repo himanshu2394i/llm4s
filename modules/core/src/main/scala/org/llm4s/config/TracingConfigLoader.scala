@@ -82,8 +82,8 @@ private[config] object TracingConfigLoader {
 
     val otelCfg = OpenTelemetryConfig(
       serviceName = otelSection.serviceName.getOrElse("llm4s-agent"),
-      endpoint    = otelSection.endpoint.getOrElse("http://localhost:4317"),
-      headers     = otelSection.headers.getOrElse(Map.empty)
+      endpoint = otelSection.endpoint.getOrElse("http://localhost:4317"),
+      headers = otelSection.headers.getOrElse(Map.empty)
     )
 
     TracingSettings(mode, lfCfg, otelCfg)

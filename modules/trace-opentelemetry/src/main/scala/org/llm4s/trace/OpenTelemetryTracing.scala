@@ -62,10 +62,10 @@ class OpenTelemetryTracing(
 
   // Log initialization failure if any
   initializationResult match {
-    case Left(error) => 
+    case Left(error) =>
       org.slf4j.LoggerFactory.getLogger(getClass).error("Failed to initialize OpenTelemetry tracing", error)
-    case Right(_) => 
-      // Initialized successfully
+    case Right(_) =>
+    // Initialized successfully
   }
 
   private val tracer: Option[Tracer] = initializationResult.map(_._2).toOption
@@ -110,7 +110,7 @@ class OpenTelemetryTracing(
 
       case None =>
         initializationResult match {
-          case Left(e) => Left(UnknownError("Failed to initialize OpenTelemetry", e))
+          case Left(e)  => Left(UnknownError("Failed to initialize OpenTelemetry", e))
           case Right(_) => Right(()) // Should not happen
         }
     }
@@ -148,7 +148,7 @@ class OpenTelemetryTracing(
             .builder()
             .put(TraceAttributes.EventType, "span-create")
             .put(TraceAttributes.ToolName, e.name)
-            .put("tool.input", e.input.take(1000)) // Truncate potentially large/sensitive info
+            .put("tool.input", e.input.take(1000))   // Truncate potentially large/sensitive info
             .put("tool.output", e.output.take(1000)) // Truncate potentially large/sensitive info
             .put("duration_ms", e.duration)
             .put("success", e.success)

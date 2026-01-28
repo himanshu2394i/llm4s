@@ -319,7 +319,7 @@ object Tracing {
         lf.release,
         lf.version
       )
-    case TracingMode.Console       => new ConsoleTracing()
+    case TracingMode.Console => new ConsoleTracing()
     case TracingMode.OpenTelemetry =>
       val ot = settings.openTelemetry
       try {
@@ -339,6 +339,6 @@ object Tracing {
           logger.error("Failed to initialize OpenTelemetry tracing. Falling back to NoOpTracing.", e)
           new NoOpTracing()
       }
-    case TracingMode.NoOp          => new NoOpTracing()
+    case TracingMode.NoOp => new NoOpTracing()
   }
 }
