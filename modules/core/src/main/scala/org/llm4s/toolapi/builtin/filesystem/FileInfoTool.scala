@@ -165,13 +165,12 @@ object FileInfoTool {
 
   private def humanReadableSize(bytes: Long): String = {
     @tailrec
-    def calculate(currentSize: Double, remainingUnits: Seq[String]): String = {
+    def calculate(currentSize: Double, remainingUnits: Seq[String]): String =
       if (currentSize < 1024 || remainingUnits.tail.isEmpty) {
         f"$currentSize%.1f ${remainingUnits.head}"
       } else {
         calculate(currentSize / 1024, remainingUnits.tail)
       }
-    }
 
     if (bytes < 1024) {
       s"$bytes B"
