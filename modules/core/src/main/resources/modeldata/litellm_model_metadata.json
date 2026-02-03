@@ -24936,5 +24936,49 @@
         "metadata": {
             "comment": "Estimated cost based on standard TTS pricing. RunwayML uses ElevenLabs models."
         }
+    },
+    "zai/glm-4.7": {
+        "litellm_provider": "zai",
+        "mode": "chat",
+        "max_input_tokens": 128000,
+        "max_output_tokens": 4096,
+        "supports_function_calling": true,
+        "supports_parallel_function_calling": true,
+        "supports_system_messages": true,
+        "supports_tool_choice": true,
+        "supports_native_streaming": true
+    },
+    "zai/glm-4.5-air": {
+        "litellm_provider": "zai",
+        "mode": "chat",
+        "max_input_tokens": 32000,
+        "max_output_tokens": 4096,
+        "supports_function_calling": true,
+        "supports_parallel_function_calling": true,
+        "supports_system_messages": true,
+        "supports_tool_choice": true,
+        "supports_native_streaming": true
+    },
+    "glm-4.7": {
+        "litellm_provider": "zai",
+        "mode": "chat",
+        "max_input_tokens": 128000,
+        "max_output_tokens": 4096,
+        "supports_function_calling": true,
+        "supports_parallel_function_calling": true,
+        "supports_system_messages": true,
+        "supports_tool_choice": true,
+        "supports_native_streaming": true
+    },
+    "glm-4.5-air": {
+        "litellm_provider": "zai",
+        "mode": "chat",
+        "max_input_tokens": 32000,
+        "max_output_tokens": 4096,
+        "supports_function_calling": true,
+        "supports_parallel_function_calling": true,
+        "supports_system_messages": true,
+        "supports_tool_choice": true,
+        "supports_native_streaming": true
     }
 }

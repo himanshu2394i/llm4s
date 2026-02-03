@@ -56,7 +56,7 @@ result match {
 <div class="feature-grid" markdown="1">
 
 #### 🔌 Multi-Provider Support
-Connect seamlessly to **OpenAI**, **Anthropic**, **Azure OpenAI**, and **Ollama** with a unified API. Switch providers with a single environment variable.
+Connect seamlessly to **OpenAI**, **Anthropic**, **Azure OpenAI**, **Google Gemini**, and **Ollama** with a unified API. Switch providers with a single environment variable.
 [Learn more →](/examples/#basic-examples)
 
 #### 📡 Streaming Responses

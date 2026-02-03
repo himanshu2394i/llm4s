@@ -18,6 +18,8 @@ sealed trait LLMProvider {
     case LLMProvider.Anthropic  => "anthropic"
     case LLMProvider.OpenRouter => "openrouter"
     case LLMProvider.Ollama     => "ollama"
+    case LLMProvider.Zai        => "zai"
+    case LLMProvider.Gemini     => "gemini"
   }
 }
 
@@ -66,8 +68,25 @@ object LLMProvider {
    */
   case object Ollama extends LLMProvider
 
+  /**
+   * Z.ai (ZhipuAI) provider for GLM models.
+   *
+   * Provides access to GLM-4 series models via OpenAI-compatible API.
+   * Supports GLM-4.7 and GLM-4.5-air models.
+   */
+  case object Zai extends LLMProvider
+
+  /**
+   * Google Gemini provider for Gemini models.
+   *
+   * Supports Gemini 2.0, 1.5 Pro, 1.5 Flash and other Gemini models.
+   * Features large context windows (up to 1M+ tokens) and multimodal capabilities.
+   * Requires a Google AI API key.
+   */
+  case object Gemini extends LLMProvider
+
   /** All available providers */
-  val all: Seq[LLMProvider] = Seq(OpenAI, Azure, Anthropic, OpenRouter, Ollama)
+  val all: Seq[LLMProvider] = Seq(OpenAI, Azure, Anthropic, OpenRouter, Ollama, Zai, Gemini)
 
   /**
    * Parses a provider name string to LLMProvider.
@@ -76,11 +95,13 @@ object LLMProvider {
    * @return Some(provider) if valid, None otherwise
    */
   def fromName(name: String): Option[LLMProvider] = name.toLowerCase match {
-    case "openai"     => Some(OpenAI)
-    case "azure"      => Some(Azure)
-    case "anthropic"  => Some(Anthropic)
-    case "openrouter" => Some(OpenRouter)
-    case "ollama"     => Some(Ollama)
-    case _            => None
+    case "openai"            => Some(OpenAI)
+    case "azure"             => Some(Azure)
+    case "anthropic"         => Some(Anthropic)
+    case "openrouter"        => Some(OpenRouter)
+    case "ollama"            => Some(Ollama)
+    case "zai"               => Some(Zai)
+    case "gemini" | "google" => Some(Gemini)
+    case _                   => None
   }
 }

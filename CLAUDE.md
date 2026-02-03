@@ -3,7 +3,7 @@
 ## Project Overview
 
 **LLM4S** (Large Language Models for Scala) is a framework for building LLM-powered applications in Scala with:
-- Multi-provider support (OpenAI, Anthropic, Azure, Ollama)
+- Multi-provider support (OpenAI, Anthropic, Azure, Ollama, Google Gemini)
 - Type-safe design with `Result[A]` error handling
 - Agent framework with tools, guardrails, handoffs, and memory
 - Cross-compilation for Scala 2.13 and 3.x
@@ -53,8 +53,8 @@ sbt "samples/runMain org.llm4s.samples.basic.BasicLLMCallingExample"
 
 ```bash
 # Required for LLM
-LLM_MODEL=openai/gpt-4o              # or anthropic/claude-sonnet-4-5-latest
-OPENAI_API_KEY=sk-...                # or ANTHROPIC_API_KEY
+LLM_MODEL=openai/gpt-4o              # or anthropic/claude-sonnet-4-5-latest, gemini/gemini-2.0-flash
+OPENAI_API_KEY=sk-...                # or ANTHROPIC_API_KEY, GOOGLE_API_KEY
 
 # Optional - Tracing
 TRACING_MODE=langfuse                # langfuse, opentelemetry, console, or none

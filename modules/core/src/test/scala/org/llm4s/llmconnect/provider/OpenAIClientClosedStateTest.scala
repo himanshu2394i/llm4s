@@ -19,14 +19,15 @@ class OpenAIClientClosedStateTest extends AnyFlatSpec with Matchers {
     modelName = "gpt-4",
     apiKey = "test-api-key-for-closed-state-testing",
     organization = None,
-    baseUrl = "https://api.openai.com/v1"
+    // Must never be used by unit tests (no network). We keep a clearly fake endpoint.
+    baseUrl = "https://example.invalid/v1"
   )
 
   private def createTestConversation: Conversation =
     Conversation(Seq(UserMessage("Hello")))
 
   "OpenAIClient" should "return ConfigurationError when complete() is called after close()" in {
-    val client = new OpenAIClient(createTestConfig)
+    val client = new OpenAIClient(createTestConfig, org.llm4s.metrics.MetricsCollector.noop)
 
     // Close the client
     client.close()
@@ -41,7 +42,7 @@ class OpenAIClientClosedStateTest extends AnyFlatSpec with Matchers {
   }
 
   it should "return ConfigurationError when streamComplete() is called after close()" in {
-    val client         = new OpenAIClient(createTestConfig)
+    val client         = new OpenAIClient(createTestConfig, org.llm4s.metrics.MetricsCollector.noop)
     var chunksReceived = 0
 
     // Close the client
@@ -61,7 +62,7 @@ class OpenAIClientClosedStateTest extends AnyFlatSpec with Matchers {
   }
 
   it should "allow close() to be called multiple times (idempotent)" in {
-    val client = new OpenAIClient(createTestConfig)
+    val client = new OpenAIClient(createTestConfig, org.llm4s.metrics.MetricsCollector.noop)
 
     // Close multiple times - should not throw
     noException should be thrownBy {
@@ -77,7 +78,7 @@ class OpenAIClientClosedStateTest extends AnyFlatSpec with Matchers {
   }
 
   it should "succeed for operations before close() is called" in {
-    val client = new OpenAIClient(createTestConfig)
+    val client = new OpenAIClient(createTestConfig, org.llm4s.metrics.MetricsCollector.noop)
 
     // Before closing, complete() should attempt the operation (and fail due to invalid API key,
     // but NOT due to closed state). We verify the error is NOT a ConfigurationError about being closed.
@@ -100,9 +101,10 @@ class OpenAIClientClosedStateTest extends AnyFlatSpec with Matchers {
       modelName = modelName,
       apiKey = "test-api-key",
       organization = None,
-      baseUrl = "https://api.openai.com/v1"
+      // Must never be used by unit tests (no network). We keep a clearly fake endpoint.
+      baseUrl = "https://example.invalid/v1"
     )
-    val client = new OpenAIClient(config)
+    val client = new OpenAIClient(config, org.llm4s.metrics.MetricsCollector.noop)
 
     client.close()
 

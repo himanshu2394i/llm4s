@@ -2,6 +2,7 @@ package org.llm4s.llmconnect.config
 
 import org.llm4s.model.ModelRegistry
 import org.slf4j.LoggerFactory
+import org.llm4s.util.Redaction
 
 sealed trait ProviderConfig {
   def model: String
@@ -16,7 +17,11 @@ case class OpenAIConfig(
   baseUrl: String,
   contextWindow: Int,
   reserveCompletion: Int
-) extends ProviderConfig
+) extends ProviderConfig {
+  override def toString: String =
+    s"OpenAIConfig(apiKey=${Redaction.secret(apiKey)}, model=$model, organization=$organization, baseUrl=$baseUrl, " +
+      s"contextWindow=$contextWindow, reserveCompletion=$reserveCompletion)"
+}
 
 object OpenAIConfig {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -76,7 +81,11 @@ case class AzureConfig(
   apiVersion: String,
   contextWindow: Int,
   reserveCompletion: Int
-) extends ProviderConfig
+) extends ProviderConfig {
+  override def toString: String =
+    s"AzureConfig(endpoint=$endpoint, apiKey=${Redaction.secret(apiKey)}, model=$model, apiVersion=$apiVersion, " +
+      s"contextWindow=$contextWindow, reserveCompletion=$reserveCompletion)"
+}
 
 object AzureConfig {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -135,7 +144,11 @@ case class AnthropicConfig(
   baseUrl: String,
   contextWindow: Int,
   reserveCompletion: Int
-) extends ProviderConfig
+) extends ProviderConfig {
+  override def toString: String =
+    s"AnthropicConfig(apiKey=${Redaction.secret(apiKey)}, model=$model, baseUrl=$baseUrl, contextWindow=$contextWindow, " +
+      s"reserveCompletion=$reserveCompletion)"
+}
 
 object AnthropicConfig {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -228,6 +241,128 @@ object OllamaConfig {
     require(baseUrl.trim.nonEmpty, "Ollama baseUrl must be non-empty")
     val (cw, rc) = getContextWindowForModel(modelName)
     OllamaConfig(
+      model = modelName,
+      baseUrl = baseUrl,
+      contextWindow = cw,
+      reserveCompletion = rc
+    )
+  }
+}
+
+case class ZaiConfig(
+  apiKey: String,
+  model: String,
+  baseUrl: String,
+  contextWindow: Int,
+  reserveCompletion: Int
+) extends ProviderConfig {
+  override def toString: String =
+    s"ZaiConfig(apiKey=${Redaction.secret(apiKey)}, model=$model, baseUrl=$baseUrl, contextWindow=$contextWindow, " +
+      s"reserveCompletion=$reserveCompletion)"
+}
+
+object ZaiConfig {
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  val DEFAULT_BASE_URL: String = "https://api.z.ai/api/paas/v4"
+
+  private def getContextWindowForModel(modelName: String): (Int, Int) = {
+    val standardReserve = 4096 // 4K tokens reserved for completion
+
+    val registryResult =
+      ModelRegistry
+        .lookup("zai", modelName)
+        .toOption
+        .orElse(ModelRegistry.lookup(modelName).toOption)
+
+    registryResult match {
+      case Some(metadata) =>
+        val contextWindow = metadata.maxInputTokens.getOrElse(128000)
+        val reserve       = metadata.maxOutputTokens.getOrElse(standardReserve)
+        logger.debug(s"Using ModelRegistry metadata for $modelName: context=$contextWindow, reserve=$reserve")
+        (contextWindow, reserve)
+      case None =>
+        logger.debug(s"Model $modelName not found in registry, using fallback values")
+        modelName match {
+          case name if name.contains("GLM-4.7") => (128000, standardReserve)
+          case name if name.contains("GLM-4.5") => (32000, standardReserve)
+          case _                                => (128000, standardReserve)
+        }
+    }
+  }
+
+  def fromValues(
+    modelName: String,
+    apiKey: String,
+    baseUrl: String
+  ): ZaiConfig = {
+    require(apiKey.trim.nonEmpty, "Zai apiKey must be non-empty")
+    require(baseUrl.trim.nonEmpty, "Zai baseUrl must be non-empty")
+    val (cw, rc) = getContextWindowForModel(modelName)
+    ZaiConfig(
+      apiKey = apiKey,
+      model = modelName,
+      baseUrl = baseUrl,
+      contextWindow = cw,
+      reserveCompletion = rc
+    )
+  }
+}
+
+case class GeminiConfig(
+  apiKey: String,
+  model: String,
+  baseUrl: String,
+  contextWindow: Int,
+  reserveCompletion: Int
+) extends ProviderConfig {
+  override def toString: String =
+    s"GeminiConfig(apiKey=${Redaction.secret(apiKey)}, model=$model, baseUrl=$baseUrl, contextWindow=$contextWindow, " +
+      s"reserveCompletion=$reserveCompletion)"
+}
+
+object GeminiConfig {
+  private val logger = LoggerFactory.getLogger(getClass)
+
+  private def getContextWindowForModel(modelName: String): (Int, Int) = {
+    val standardReserve = 8192 // 8K tokens reserved for completion (Gemini supports large outputs)
+
+    val registryResult =
+      ModelRegistry
+        .lookup("gemini", modelName)
+        .toOption
+        .orElse(ModelRegistry.lookup("google", modelName).toOption)
+        .orElse(ModelRegistry.lookup(modelName).toOption)
+
+    registryResult match {
+      case Some(metadata) =>
+        val contextWindow = metadata.maxInputTokens.getOrElse(1048576) // Default 1M for Gemini
+        val reserve       = metadata.maxOutputTokens.getOrElse(standardReserve)
+        logger.debug(s"Using ModelRegistry metadata for $modelName: context=$contextWindow, reserve=$reserve")
+        (contextWindow, reserve)
+      case None =>
+        logger.debug(s"Model $modelName not found in registry, using fallback values")
+        modelName match {
+          case name if name.contains("gemini-2")     => (1048576, standardReserve) // 1M tokens
+          case name if name.contains("gemini-1.5")   => (1048576, standardReserve) // 1M tokens
+          case name if name.contains("gemini-1.0")   => (32768, standardReserve)   // 32K tokens
+          case name if name.contains("gemini-pro")   => (1048576, standardReserve) // 1M tokens
+          case name if name.contains("gemini-flash") => (1048576, standardReserve) // 1M tokens
+          case _                                     => (1048576, standardReserve) // Default to 1M
+        }
+    }
+  }
+
+  def fromValues(
+    modelName: String,
+    apiKey: String,
+    baseUrl: String
+  ): GeminiConfig = {
+    require(apiKey.trim.nonEmpty, "Gemini apiKey must be non-empty")
+    require(baseUrl.trim.nonEmpty, "Gemini baseUrl must be non-empty")
+    val (cw, rc) = getContextWindowForModel(modelName)
+    GeminiConfig(
+      apiKey = apiKey,
       model = modelName,
       baseUrl = baseUrl,
       contextWindow = cw,

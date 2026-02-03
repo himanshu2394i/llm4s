@@ -19,6 +19,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import scala.jdk.CollectionConverters._
 import scala.util.Try
 
+private[provider] trait OpenAIClientTransport {
+  def getChatCompletions(model: String, options: ChatCompletionsOptions): ChatCompletions
+  def getChatCompletionsStream(model: String, options: ChatCompletionsOptions): IterableStream[ChatCompletions]
+}
+
 /**
  * LLMClient implementation supporting both OpenAI and Azure OpenAI services.
  *
@@ -41,12 +46,15 @@ import scala.util.Try
  * @param model the model identifier (e.g., "gpt-4", "gpt-3.5-turbo")
  * @param client configured Azure OpenAI client instance
  * @param config provider configuration containing context window and reserve completion settings
+ * @param metrics metrics collector for observability (default: noop)
  */
 class OpenAIClient private (
   private val model: String,
-  private val client: AzureOpenAIClient,
-  private val config: ProviderConfig
-) extends LLMClient {
+  private val transport: OpenAIClientTransport,
+  private val config: ProviderConfig,
+  protected val metrics: org.llm4s.metrics.MetricsCollector
+) extends LLMClient
+    with MetricsRecording {
 
   private lazy val logger: Logger   = LoggerFactory.getLogger(getClass)
   private val closed: AtomicBoolean = new AtomicBoolean(false)
@@ -55,35 +63,43 @@ class OpenAIClient private (
    * Creates an OpenAI client for direct OpenAI API access.
    *
    * @param config OpenAI configuration with API key and base URL
+   * @param metrics metrics collector (default: noop)
    */
-  def this(config: OpenAIConfig) = this(
+  def this(config: OpenAIConfig, metrics: org.llm4s.metrics.MetricsCollector) = this(
     config.model,
-    new OpenAIClientBuilder()
-      .credential(new KeyCredential(config.apiKey))
-      .endpoint(config.baseUrl)
-      .buildClient(),
-    config
+    OpenAIClientTransport.azure(
+      new OpenAIClientBuilder()
+        .credential(new KeyCredential(config.apiKey))
+        .endpoint(config.baseUrl)
+        .buildClient()
+    ),
+    config,
+    metrics
   )
 
   /**
    * Creates an OpenAI client for Azure OpenAI service.
    *
    * @param config Azure configuration with API key, endpoint, and API version
+   * @param metrics metrics collector (default: noop)
    */
-  def this(config: AzureConfig) = this(
+  def this(config: AzureConfig, metrics: org.llm4s.metrics.MetricsCollector) = this(
     config.model,
-    new OpenAIClientBuilder()
-      .credential(new AzureKeyCredential(config.apiKey))
-      .endpoint(config.endpoint)
-      .serviceVersion(OpenAIServiceVersion.valueOf(config.apiVersion))
-      .buildClient(),
-    config
+    OpenAIClientTransport.azure(
+      new OpenAIClientBuilder()
+        .credential(new AzureKeyCredential(config.apiKey))
+        .endpoint(config.endpoint)
+        .serviceVersion(OpenAIServiceVersion.valueOf(config.apiVersion))
+        .buildClient()
+    ),
+    config,
+    metrics
   )
 
   override def complete(
     conversation: Conversation,
     options: CompletionOptions
-  ): Result[Completion] =
+  ): Result[Completion] = withMetrics("openai", model) {
     validateNotClosed.flatMap { _ =>
       // Transform options and messages for model-specific constraints
       for {
@@ -99,19 +115,26 @@ class OpenAIClient private (
           transformed.options,
           transformed.requiresMaxCompletionTokens
         )
-        completions <- Try(client.getChatCompletions(model, chatOptions)).toEither.left
+        completions <- Try(transport.getChatCompletions(model, chatOptions)).toEither.left
           .map { e =>
             logger.error(s"OpenAI completion failed for model $model", e)
             e.toLLMError
           }
       } yield convertFromOpenAIFormat(completions)
     }
+  }(
+    extractUsage = _.usage,
+    estimateCost = usage =>
+      org.llm4s.model.ModelRegistry.lookup(model).toOption.flatMap { meta =>
+        meta.pricing.estimateCost(usage.promptTokens, usage.completionTokens)
+      }
+  )
 
   override def streamComplete(
     conversation: Conversation,
     options: CompletionOptions = CompletionOptions(),
     onChunk: StreamedChunk => Unit
-  ): Result[Completion] =
+  ): Result[Completion] = withMetrics("openai", model) {
     validateNotClosed.flatMap { _ =>
       // Transform options and messages for model-specific constraints
       TransformationResult.transform(model, options, conversation.messages, dropUnsupported = true).flatMap {
@@ -127,6 +150,13 @@ class OpenAIClient private (
           }
       }
     }
+  }(
+    extractUsage = _.usage,
+    estimateCost = usage =>
+      org.llm4s.model.ModelRegistry.lookup(model).toOption.flatMap { meta =>
+        meta.pricing.estimateCost(usage.promptTokens, usage.completionTokens)
+      }
+  )
 
   override def close(): Unit =
     // Mark client as closed to prevent further operations.
@@ -166,7 +196,7 @@ class OpenAIClient private (
     chatOptions: ChatCompletionsOptions,
     onChunk: StreamedChunk => Unit
   ): Result[Completion] = {
-    val attempt = Try(client.getChatCompletions(model, chatOptions)).toEither.left
+    val attempt = Try(transport.getChatCompletions(model, chatOptions)).toEither.left
       .map { e =>
         logger.error(s"OpenAI fake streaming failed for model $model", e)
         e.toLLMError
@@ -194,7 +224,7 @@ class OpenAIClient private (
     val accumulator = StreamingAccumulator.create()
 
     val attempt = Try {
-      val stream = client.getChatCompletionsStream(model, chatOptions)
+      val stream = transport.getChatCompletionsStream(model, chatOptions)
       processStreamingResponse(stream, accumulator, onChunk)
     }.toEither.left.map { e =>
       logger.error(s"OpenAI native streaming failed for model $model", e)
@@ -217,9 +247,9 @@ class OpenAIClient private (
     onChunk: StreamedChunk => Unit
   ): Unit =
     stream.forEach { chatCompletions =>
-      if (chatCompletions.getChoices != null && !chatCompletions.getChoices.isEmpty) {
-        processStreamingChoice(chatCompletions, accumulator, onChunk)
-      }
+      Option(chatCompletions.getChoices)
+        .filterNot(_.isEmpty)
+        .foreach(_ => processStreamingChoice(chatCompletions, accumulator, onChunk))
     }
 
   /**
@@ -244,7 +274,7 @@ class OpenAIClient private (
     emitStreamingChunks(chunkId, contentOpt, toolCalls, finishReason, accumulator, onChunk)
 
     // Update token usage when streaming completes
-    if (choice.getFinishReason != null) {
+    Option(choice.getFinishReason).foreach { _ =>
       Option(chatCompletions.getUsage).foreach { usage =>
         accumulator.updateTokens(usage.getPromptTokens, usage.getCompletionTokens)
       }
@@ -531,21 +561,57 @@ class OpenAIClient private (
 object OpenAIClient {
   import org.llm4s.types.TryOps
 
+  private[provider] def forTest(
+    model: String,
+    transport: OpenAIClientTransport,
+    config: ProviderConfig,
+    metrics: org.llm4s.metrics.MetricsCollector = org.llm4s.metrics.MetricsCollector.noop
+  ): OpenAIClient =
+    new OpenAIClient(model, transport, config, metrics)
+
   /**
    * Creates an OpenAI client for direct OpenAI API access.
    *
    * @param config OpenAI configuration with API key, model, and base URL
+   * @param metrics metrics collector for observability
    * @return Right(OpenAIClient) on success, Left(LLMError) if client creation fails
    */
+  def apply(config: OpenAIConfig, metrics: org.llm4s.metrics.MetricsCollector): Result[OpenAIClient] =
+    Try(new OpenAIClient(config, metrics)).toResult
+
+  /**
+   * Convenience overload with noop metrics.
+   */
   def apply(config: OpenAIConfig): Result[OpenAIClient] =
-    Try(new OpenAIClient(config)).toResult
+    Try(new OpenAIClient(config, org.llm4s.metrics.MetricsCollector.noop)).toResult
 
   /**
    * Creates an OpenAI client for Azure OpenAI service.
    *
    * @param config Azure configuration with API key, model, endpoint, and API version
+   * @param metrics metrics collector for observability
    * @return Right(OpenAIClient) on success, Left(LLMError) if client creation fails
    */
+  def apply(config: AzureConfig, metrics: org.llm4s.metrics.MetricsCollector): Result[OpenAIClient] =
+    Try(new OpenAIClient(config, metrics)).toResult
+
+  /**
+   * Convenience overload with noop metrics.
+   */
   def apply(config: AzureConfig): Result[OpenAIClient] =
-    Try(new OpenAIClient(config)).toResult
+    Try(new OpenAIClient(config, org.llm4s.metrics.MetricsCollector.noop)).toResult
+}
+
+private[provider] object OpenAIClientTransport {
+  def azure(client: AzureOpenAIClient): OpenAIClientTransport =
+    new OpenAIClientTransport {
+      override def getChatCompletions(model: String, options: ChatCompletionsOptions): ChatCompletions =
+        client.getChatCompletions(model, options)
+
+      override def getChatCompletionsStream(
+        model: String,
+        options: ChatCompletionsOptions
+      ): IterableStream[ChatCompletions] =
+        client.getChatCompletionsStream(model, options)
+    }
 }
