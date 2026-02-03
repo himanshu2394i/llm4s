@@ -65,7 +65,7 @@ class OpenTelemetryTracing(
     case Left(error) =>
       org.slf4j.LoggerFactory.getLogger(getClass).error("Failed to initialize OpenTelemetry tracing", error)
     case Right(_) =>
-    // Initialized successfully
+
   }
 
   private val tracer: Option[Tracer] = initializationResult.map(_._2).toOption
@@ -84,16 +84,7 @@ class OpenTelemetryTracing(
         val spanBuilder = t
           .spanBuilder(spanName)
           .setAllAttributes(attributes)
-
-        if (
-          event.isInstanceOf[TraceEvent.AgentInitialized] ||
-          event.isInstanceOf[TraceEvent.AgentStateUpdated] ||
-          event.isInstanceOf[TraceEvent.TokenUsageRecorded]
-        ) {
-          spanBuilder.setSpanKind(SpanKind.INTERNAL)
-        } else {
-          spanBuilder.setSpanKind(SpanKind.CLIENT)
-        }
+          .setSpanKind(getSpanKind(event))
 
         val span = spanBuilder.startSpan()
 
@@ -115,7 +106,15 @@ class OpenTelemetryTracing(
         }
     }
 
-  private def mapEventToAttributes(event: TraceEvent): (String, Attributes) = {
+  private[trace] def getSpanKind(event: TraceEvent): SpanKind = event match {
+    case _: TraceEvent.AgentInitialized | _: TraceEvent.AgentStateUpdated |
+        _: TraceEvent.TokenUsageRecorded =>
+      SpanKind.INTERNAL
+    case _ =>
+      SpanKind.CLIENT
+  }
+
+  private[trace] def mapEventToAttributes(event: TraceEvent): (String, Attributes) = {
     event match {
       case e: TraceEvent.AgentInitialized =>
         (
@@ -123,7 +122,7 @@ class OpenTelemetryTracing(
           Attributes
             .builder()
             .put(TraceAttributes.EventType, "trace-create")
-            .put("input", e.query.take(1000)) // Truncate sensitive input
+            .put("input", e.query.take(1000))
             .put("tools", e.tools.mkString(", "))
             .build()
         )
@@ -134,10 +133,10 @@ class OpenTelemetryTracing(
           Attributes
             .builder()
             .put(TraceAttributes.EventType, "generation-create")
-            .put("model", e.model)
+            .put("gen_ai.request.model", e.model)
             .put("completion_id", e.id)
             .put("tool_calls", e.toolCalls.toLong)
-            .put("content", e.content.take(1000)) // Truncate potentially large/sensitive content
+            .put("content", e.content.take(1000))
             .build()
         )
 
@@ -148,8 +147,8 @@ class OpenTelemetryTracing(
             .builder()
             .put(TraceAttributes.EventType, "span-create")
             .put(TraceAttributes.ToolName, e.name)
-            .put("tool.input", e.input.take(1000))   // Truncate potentially large/sensitive info
-            .put("tool.output", e.output.take(1000)) // Truncate potentially large/sensitive info
+            .put("tool.input", e.input.take(1000))
+            .put("tool.output", e.output.take(1000))
             .put("duration_ms", e.duration)
             .put("success", e.success)
             .build()
@@ -173,11 +172,11 @@ class OpenTelemetryTracing(
           Attributes
             .builder()
             .put(TraceAttributes.EventType, "event-create")
-            .put("model", e.model)
+            .put("gen_ai.request.model", e.model)
             .put("operation", e.operation)
-            .put("tokens.prompt", e.usage.promptTokens.toLong)
-            .put("tokens.completion", e.usage.completionTokens.toLong)
-            .put("tokens.total", e.usage.totalTokens.toLong)
+            .put("gen_ai.usage.input_tokens", e.usage.promptTokens.toLong)
+            .put("gen_ai.usage.output_tokens", e.usage.completionTokens.toLong)
+            .put("arg_usage_total_tokens", e.usage.totalTokens.toLong)
             .build()
         )
 
@@ -209,11 +208,11 @@ class OpenTelemetryTracing(
           Attributes
             .builder()
             .put(TraceAttributes.EventType, "embedding-usage")
-            .put("model", e.model)
+            .put("gen_ai.request.model", e.model)
             .put("operation", e.operation)
             .put("input_count", e.inputCount.toLong)
-            .put("tokens.prompt", e.usage.promptTokens.toLong)
-            .put("tokens.total", e.usage.totalTokens.toLong)
+            .put("gen_ai.usage.input_tokens", e.usage.promptTokens.toLong)
+            .put("arg_usage_total_tokens", e.usage.totalTokens.toLong)
             .build()
         )
 
@@ -223,7 +222,7 @@ class OpenTelemetryTracing(
           Attributes
             .builder()
             .put(TraceAttributes.EventType, "cost")
-            .put("model", e.model)
+            .put("gen_ai.request.model", e.model)
             .put("operation", e.operation)
             .put("token_count", e.tokenCount.toLong)
             .put("cost.usd", e.costUsd)
@@ -290,7 +289,7 @@ class OpenTelemetryTracing(
   }
 }
 
-private object TraceAttributes {
+private[trace] object TraceAttributes {
   val EventType = AttributeKey.stringKey("event.type")
   val ToolName  = AttributeKey.stringKey("tool.name")
 }
