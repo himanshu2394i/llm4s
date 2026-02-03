@@ -2,7 +2,7 @@ package org.llm4s.trace
 
 import io.opentelemetry.api.common.AttributeKey
 import io.opentelemetry.api.trace.SpanKind
-import org.llm4s.llmconnect.config.{OpenTelemetryConfig, TracingSettings}
+import org.llm4s.llmconnect.config.{ OpenTelemetryConfig, TracingSettings }
 import org.llm4s.llmconnect.model.TokenUsage
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -20,8 +20,8 @@ class OpenTelemetryTracingSpec extends AnyFlatSpec with Matchers {
   "OpenTelemetryTracing" should "assign correct SpanKind for events" in {
     tracing.getSpanKind(TraceEvent.AgentInitialized("query", Vector.empty)) shouldBe SpanKind.INTERNAL
     tracing.getSpanKind(TraceEvent.AgentStateUpdated("Thinking", 1, 0)) shouldBe SpanKind.INTERNAL
-    tracing.getSpanKind(TraceEvent.TokenUsageRecorded(TokenUsage(1,1,2), "model", "op")) shouldBe SpanKind.INTERNAL
-    
+    tracing.getSpanKind(TraceEvent.TokenUsageRecorded(TokenUsage(1, 1, 2), "model", "op")) shouldBe SpanKind.INTERNAL
+
     tracing.getSpanKind(TraceEvent.CompletionReceived("id", "model", 0, "content")) shouldBe SpanKind.CLIENT
     tracing.getSpanKind(TraceEvent.ToolExecuted("tool", "in", "out", 100, true)) shouldBe SpanKind.CLIENT
     tracing.getSpanKind(TraceEvent.ErrorOccurred(new Exception(""), "")) shouldBe SpanKind.CLIENT
@@ -34,9 +34,9 @@ class OpenTelemetryTracingSpec extends AnyFlatSpec with Matchers {
       toolCalls = 2,
       content = "Hello world"
     )
-    
+
     val (name, attributes) = tracing.mapEventToAttributes(event)
-    
+
     name shouldBe "LLM Completion"
     attributes.get(TraceAttributes.EventType) shouldBe "generation-create"
     attributes.get(AttributeKey.stringKey("gen_ai.request.model")) shouldBe "gpt-4"
@@ -61,11 +61,11 @@ class OpenTelemetryTracingSpec extends AnyFlatSpec with Matchers {
 
   it should "truncate excessive content in attributes" in {
     val longContent = "a" * 2000
-    val event = TraceEvent.CompletionReceived("id", "model", 0, longContent)
-    
+    val event       = TraceEvent.CompletionReceived("id", "model", 0, longContent)
+
     val (_, attributes) = tracing.mapEventToAttributes(event)
-    val storedContent = attributes.get(AttributeKey.stringKey("content"))
-    
+    val storedContent   = attributes.get(AttributeKey.stringKey("content"))
+
     storedContent.length shouldBe 1000
     storedContent shouldBe longContent.take(1000)
   }
@@ -101,7 +101,7 @@ class OpenTelemetryTracingSpec extends AnyFlatSpec with Matchers {
 
     val tracingInstance = Tracing.create(settings)
     tracingInstance shouldBe a[OpenTelemetryTracing]
-    
+
     // Cleanup
     tracingInstance.shutdown()
   }

@@ -107,8 +107,7 @@ class OpenTelemetryTracing(
     }
 
   private[trace] def getSpanKind(event: TraceEvent): SpanKind = event match {
-    case _: TraceEvent.AgentInitialized | _: TraceEvent.AgentStateUpdated |
-        _: TraceEvent.TokenUsageRecorded =>
+    case _: TraceEvent.AgentInitialized | _: TraceEvent.AgentStateUpdated | _: TraceEvent.TokenUsageRecorded =>
       SpanKind.INTERNAL
     case _ =>
       SpanKind.CLIENT
