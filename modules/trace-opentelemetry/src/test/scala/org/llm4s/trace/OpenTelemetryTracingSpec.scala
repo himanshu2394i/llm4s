@@ -56,7 +56,7 @@ class OpenTelemetryTracingSpec extends AnyFlatSpec with Matchers {
     attributes.get(AttributeKey.stringKey("gen_ai.request.model")) shouldBe "gpt-4"
     attributes.get(AttributeKey.longKey("gen_ai.usage.input_tokens")) shouldBe 10L
     attributes.get(AttributeKey.longKey("gen_ai.usage.output_tokens")) shouldBe 20L
-    attributes.get(AttributeKey.longKey("arg_usage_total_tokens")) shouldBe 30L
+    attributes.get(AttributeKey.longKey("gen_ai.usage.total_tokens")) shouldBe 30L
   }
 
   it should "truncate excessive content in attributes" in {

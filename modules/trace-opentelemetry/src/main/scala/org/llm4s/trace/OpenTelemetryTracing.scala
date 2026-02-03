@@ -64,8 +64,7 @@ class OpenTelemetryTracing(
   initializationResult match {
     case Left(error) =>
       org.slf4j.LoggerFactory.getLogger(getClass).error("Failed to initialize OpenTelemetry tracing", error)
-    case Right(_) =>
-
+    case Right(_) => // Successfully initialized
   }
 
   private val tracer: Option[Tracer] = initializationResult.map(_._2).toOption
@@ -175,7 +174,7 @@ class OpenTelemetryTracing(
             .put("operation", e.operation)
             .put("gen_ai.usage.input_tokens", e.usage.promptTokens.toLong)
             .put("gen_ai.usage.output_tokens", e.usage.completionTokens.toLong)
-            .put("arg_usage_total_tokens", e.usage.totalTokens.toLong)
+            .put("gen_ai.usage.total_tokens", e.usage.totalTokens.toLong)
             .build()
         )
 
@@ -211,7 +210,7 @@ class OpenTelemetryTracing(
             .put("operation", e.operation)
             .put("input_count", e.inputCount.toLong)
             .put("gen_ai.usage.input_tokens", e.usage.promptTokens.toLong)
-            .put("arg_usage_total_tokens", e.usage.totalTokens.toLong)
+            .put("gen_ai.usage.total_tokens", e.usage.totalTokens.toLong)
             .build()
         )
 
@@ -241,6 +240,29 @@ class OpenTelemetryTracing(
             .put("llm_prompt_tokens", e.llmPromptTokens.map(_.toLong).getOrElse(0L))
             .put("llm_completion_tokens", e.llmCompletionTokens.map(_.toLong).getOrElse(0L))
             .put("total_cost_usd", e.totalCostUsd.getOrElse(0.0))
+            .build()
+        )
+
+      case e: TraceEvent.CacheHit =>
+        (
+          "Cache Hit",
+          Attributes
+            .builder()
+            .put(TraceAttributes.EventType, "cache-hit")
+            .put("similarity", e.similarity)
+            .put("threshold", e.threshold)
+            .put("timestamp", e.timestamp.toString)
+            .build()
+        )
+
+      case e: TraceEvent.CacheMiss =>
+        (
+          "Cache Miss",
+          Attributes
+            .builder()
+            .put(TraceAttributes.EventType, "cache-miss")
+            .put("reason", e.reason.value)
+            .put("timestamp", e.timestamp.toString)
             .build()
         )
     }
