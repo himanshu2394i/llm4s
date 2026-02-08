@@ -445,24 +445,6 @@ val weatherTool = ToolFunction(
 
 ---
 
-### LLMWeatherExample {#llm-weather}
-
-**File:** [`LLMWeatherExample.scala`](https://github.com/llm4s/llm4s/blob/main/modules/samples/src/main/scala/org/llm4s/samples/toolapi/LLMWeatherExample.scala)
-
-Using tools with LLM calls - agent automatically calls tools.
-
-```bash
-sbt "samples/runMain org.llm4s.samples.toolapi.LLMWeatherExample"
-```
-
-**What it demonstrates:**
-- LLM tool calling
-- Automatic tool selection
-- Tool result integration
-- Natural language to tool execution
-
----
-
 ### MultiToolExample {#multi-tool}
 
 **File:** [`MultiToolExample.scala`](https://github.com/llm4s/llm4s/blob/main/modules/samples/src/main/scala/org/llm4s/samples/toolapi/MultiToolExample.scala)
