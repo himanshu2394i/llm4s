@@ -7,7 +7,7 @@ import org.llm4s.llmconnect.streaming.{ SSEParser, StreamingAccumulator }
 import org.llm4s.metrics.MetricsCollector
 import org.llm4s.toolapi.ToolRegistry
 import org.llm4s.types.Result
-import org.llm4s.error.{ AuthenticationError, RateLimitError, ServiceError }
+import org.llm4s.error.{ AuthenticationError, ConfigurationError, RateLimitError, ServiceError }
 import org.llm4s.error.ThrowableOps._
 
 import java.net.URI
@@ -15,6 +15,7 @@ import java.net.http.{ HttpClient, HttpRequest, HttpResponse }
 import java.time.Duration
 import java.io.{ BufferedReader, InputStreamReader }
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.Try
 
 /**
@@ -36,44 +37,47 @@ class DeepSeekClient(
     with MetricsRecording {
   private val httpClient = HttpClient.newHttpClient()
   private val logger     = org.slf4j.LoggerFactory.getLogger(getClass)
+  private val closed     = new AtomicBoolean(false)
 
   override def complete(
     conversation: Conversation,
     options: CompletionOptions
   ): Result[Completion] = withMetrics("deepseek", config.model) {
-    val requestBody = createRequestBody(conversation, options)
+    validateNotClosed.flatMap { _ =>
+      val requestBody = createRequestBody(conversation, options)
 
-    logger.debug(s"Sending request to DeepSeek API at ${config.baseUrl}/chat/completions")
+      logger.debug(s"Sending request to DeepSeek API at ${config.baseUrl}/chat/completions")
 
-    val attempt =
-      Try {
-        val request = HttpRequest
-          .newBuilder()
-          .uri(URI.create(s"${config.baseUrl}/chat/completions"))
-          .header("Content-Type", "application/json")
-          .header("Authorization", s"Bearer ${config.apiKey}")
-          .header("User-Agent", "llm4s/1.0")
-          .POST(HttpRequest.BodyPublishers.ofString(requestBody.render()))
-          .build()
+      val attempt =
+        Try {
+          val request = HttpRequest
+            .newBuilder()
+            .uri(URI.create(s"${config.baseUrl}/chat/completions"))
+            .header("Content-Type", "application/json")
+            .header("Authorization", s"Bearer ${config.apiKey}")
+            .header("User-Agent", "llm4s/1.0")
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody.render()))
+            .build()
 
-        val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
+          val response = httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 
-        logger.debug(s"Response status: ${response.statusCode()}")
+          logger.debug(s"Response status: ${response.statusCode()}")
 
-        response
-      }.toEither.left
-        .map(_.toLLMError)
+          response
+        }.toEither.left
+          .map(_.toLLMError)
 
-    attempt.flatMap { response =>
-      response.statusCode() match {
-        case 200 =>
-          Try {
-            val responseJson = ujson.read(response.body())
-            parseCompletion(responseJson)
-          }.toEither.left.map(_.toLLMError)
-        case 401    => Left(AuthenticationError("deepseek", "Invalid API key"))
-        case 429    => Left(RateLimitError("deepseek"))
-        case status => Left(ServiceError(status, "deepseek", s"DeepSeek API error: ${response.body()}"))
+      attempt.flatMap { response =>
+        response.statusCode() match {
+          case 200 =>
+            Try {
+              val responseJson = ujson.read(response.body())
+              parseCompletion(responseJson)
+            }.toEither.left.map(_.toLLMError)
+          case 401    => Left(AuthenticationError("deepseek", "Invalid API key"))
+          case 429    => Left(RateLimitError("deepseek"))
+          case status => Left(ServiceError(status, "deepseek", s"DeepSeek API error: ${response.body()}"))
+        }
       }
     }
   }(
@@ -89,57 +93,59 @@ class DeepSeekClient(
     options: CompletionOptions = CompletionOptions(),
     onChunk: StreamedChunk => Unit
   ): Result[Completion] = withMetrics("deepseek", config.model) {
-    val requestBody = createRequestBody(conversation, options)
-    requestBody("stream") = true
+    validateNotClosed.flatMap { _ =>
+      val requestBody = createRequestBody(conversation, options)
+      requestBody("stream") = true
 
-    val accumulator = StreamingAccumulator.create()
+      val accumulator = StreamingAccumulator.create()
 
-    val requestResult = Try {
-      val request = HttpRequest
-        .newBuilder()
-        .uri(URI.create(s"${config.baseUrl}/chat/completions"))
-        .header("Content-Type", "application/json")
-        .header("Authorization", s"Bearer ${config.apiKey}")
-        .header("User-Agent", "llm4s/1.0")
-        .timeout(Duration.ofMinutes(5))
-        .POST(HttpRequest.BodyPublishers.ofString(requestBody.render()))
-        .build()
+      val requestResult = Try {
+        val request = HttpRequest
+          .newBuilder()
+          .uri(URI.create(s"${config.baseUrl}/chat/completions"))
+          .header("Content-Type", "application/json")
+          .header("Authorization", s"Bearer ${config.apiKey}")
+          .header("User-Agent", "llm4s/1.0")
+          .timeout(Duration.ofMinutes(5))
+          .POST(HttpRequest.BodyPublishers.ofString(requestBody.render()))
+          .build()
 
-      httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
-    }.toEither.left.map(_.toLLMError)
+        httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream())
+      }.toEither.left.map(_.toLLMError)
 
-    requestResult.flatMap { response =>
-      if (response.statusCode() != 200) {
-        val errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8)
-        Try(response.body().close()) // Ensure stream is closed on error path
-        response.statusCode() match {
-          case 401    => Left(AuthenticationError("deepseek", "Invalid API key"))
-          case 429    => Left(RateLimitError("deepseek"))
-          case status => Left(ServiceError(status, "deepseek", s"DeepSeek API error: $errorBody"))
-        }
-      } else {
-        val sseParser = SSEParser.createStreamingParser()
-        val reader    = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))
-        val loopTry = Try {
-          Iterator.continually(reader.readLine()).takeWhile(_ != null).foreach { line =>
-            sseParser.addChunk(line + "\n")
-            while (sseParser.hasEvents)
-              sseParser.nextEvent().foreach { event =>
-                event.data.foreach { data =>
-                  if (data != "[DONE]") {
-                    val json   = ujson.read(data)
-                    val chunks = parseStreamingChunks(json)
-                    chunks.foreach { c =>
-                      accumulator.addChunk(c)
-                      onChunk(c)
+      requestResult.flatMap { response =>
+        if (response.statusCode() != 200) {
+          val errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8)
+          Try(response.body().close()) // Ensure stream is closed on error path
+          response.statusCode() match {
+            case 401    => Left(AuthenticationError("deepseek", "Invalid API key"))
+            case 429    => Left(RateLimitError("deepseek"))
+            case status => Left(ServiceError(status, "deepseek", s"DeepSeek API error: $errorBody"))
+          }
+        } else {
+          val sseParser = SSEParser.createStreamingParser()
+          val reader    = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))
+          val loopTry = Try {
+            Iterator.continually(reader.readLine()).takeWhile(_ != null).foreach { line =>
+              sseParser.addChunk(line + "\n")
+              while (sseParser.hasEvents)
+                sseParser.nextEvent().foreach { event =>
+                  event.data.foreach { data =>
+                    if (data != "[DONE]") {
+                      val json   = ujson.read(data)
+                      val chunks = parseStreamingChunks(json)
+                      chunks.foreach { c =>
+                        accumulator.addChunk(c)
+                        onChunk(c)
+                      }
                     }
                   }
                 }
-              }
+            }
           }
+          Try(reader.close()); Try(response.body().close())
+          loopTry.toEither.left.map(_.toLLMError).flatMap(_ => accumulator.toCompletion)
         }
-        Try(reader.close()); Try(response.body().close())
-        loopTry.toEither.left.map(_.toLLMError).flatMap(_ => accumulator.toCompletion)
       }
     }
   }(
@@ -308,6 +314,19 @@ class DeepSeekClient(
   override def getContextWindow(): Int = config.contextWindow
 
   override def getReserveCompletion(): Int = config.reserveCompletion
+
+  override def close(): Unit =
+    if (closed.compareAndSet(false, true)) {
+      // Java HttpClient does not have explicit close()
+      // We track logical closed state for thread-safety
+    }
+
+  private def validateNotClosed: Result[Unit] =
+    if (closed.get()) {
+      Left(ConfigurationError(s"DeepSeek client for model ${config.model} is already closed"))
+    } else {
+      Right(())
+    }
 }
 
 object DeepSeekClient {
