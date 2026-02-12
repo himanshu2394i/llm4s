@@ -51,23 +51,23 @@ class DeepSeekClientToolMessageTest extends AnyFlatSpec with Matchers {
         )
       )
     )
+   
+    
+   // Directly calls the extracted helper to verify request encoding.
+   // This avoids using reflection on private client methods.
+    val requestBody = DeepSeekClient.buildRequestBody(
+      createTestConfig.model,
+      conversation,
+      CompletionOptions()
+   )
 
-    // Access the private createRequestBody method via reflection to test encoding
-    val method = client.getClass.getDeclaredMethod(
-      "createRequestBody",
-      classOf[Conversation],
-      classOf[CompletionOptions]
-    )
-    method.setAccessible(true)
-
-    val requestBody = method
-      .invoke(client, conversation, CompletionOptions())
-      .asInstanceOf[ujson.Obj]
 
     // Verify the messages array
     val messages = requestBody("messages").arr
 
-    // The third message should be the ToolMessage
+  
+
+    // The third message must be the tool response generated after the assistant's tool call
     val toolMessage = messages(2).obj
 
     // Verify the encoding is correct
@@ -112,17 +112,13 @@ class DeepSeekClientToolMessageTest extends AnyFlatSpec with Matchers {
         )
       )
     )
-
-    val method = client.getClass.getDeclaredMethod(
-      "createRequestBody",
-      classOf[Conversation],
-      classOf[CompletionOptions]
+     // Directly calls the extracted helper to verify request encoding.
+     // This avoids using reflection on private client methods.
+    val requestBody = DeepSeekClient.buildRequestBody(
+      createTestConfig.model,
+      conversation,
+      CompletionOptions()
     )
-    method.setAccessible(true)
-
-    val requestBody = method
-      .invoke(client, conversation, CompletionOptions())
-      .asInstanceOf[ujson.Obj]
 
     val messages = requestBody("messages").arr
 
@@ -137,3 +133,7 @@ class DeepSeekClientToolMessageTest extends AnyFlatSpec with Matchers {
     toolMsg2("content").str shouldBe """{"temp": 45}"""
   }
 }
+
+
+
+  

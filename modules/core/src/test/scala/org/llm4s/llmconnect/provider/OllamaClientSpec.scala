@@ -27,26 +27,12 @@ class OllamaClientSpec extends AnyFunSuite {
 
     val client = new OllamaClient(config)
 
-    // Access internal method via reflection (test-only)
-    // Use getDeclaredMethod with exact parameter types for cross-platform compatibility
-    val method = client.getClass.getDeclaredMethod(
-      "createRequestBody",
-      classOf[Conversation],
-      classOf[CompletionOptions],
-      java.lang.Boolean.TYPE
-    )
+   // Test internal request body creation
+    val body = client.createRequestBody(conversation, CompletionOptions(), false)
 
-    method.setAccessible(true)
+    
 
-    val body = method
-      .invoke(
-        client,
-        conversation,
-        CompletionOptions(),
-        Boolean.box(false)
-      )
-      .asInstanceOf[ujson.Obj]
-
+    
     val messages = body("messages").arr
 
     val assistantMessage =

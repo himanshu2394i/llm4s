@@ -214,55 +214,18 @@ class DeepSeekClient(
 
   private def parseStreamingArguments(raw: String): ujson.Value =
     if (raw.isEmpty) ujson.Null else scala.util.Try(ujson.read(raw)).getOrElse(ujson.Str(raw))
+  
+  // Delegates request body construction to the companion helper so it can be
+  // unit tested directly. This avoids reflection-based testing and ensures
+  // ToolMessage encoding remains consistent with OpenAI-compatible APIs.
+  private def createRequestBody(
+    conversation: Conversation,
+    options: CompletionOptions
+    ): ujson.Obj =
+    DeepSeekClient.buildRequestBody(config.model, conversation, options)
 
-  private def createRequestBody(conversation: Conversation, options: CompletionOptions): ujson.Obj = {
-    val messages = conversation.messages.map {
-      case UserMessage(content) =>
-        ujson.Obj("role" -> "user", "content" -> content)
-      case SystemMessage(content) =>
-        ujson.Obj("role" -> "system", "content" -> content)
-      case AssistantMessage(content, toolCalls) =>
-        val base = ujson.Obj("role" -> "assistant")
-        content.filter(_.nonEmpty).foreach(c => base("content") = c)
-        if (toolCalls.nonEmpty) {
-          base("tool_calls") = ujson.Arr.from(toolCalls.map { tc =>
-            ujson.Obj(
-              "id"   -> tc.id,
-              "type" -> "function",
-              "function" -> ujson.Obj(
-                "name"      -> tc.name,
-                "arguments" -> tc.arguments.render()
-              )
-            )
-          })
-        }
-        base
-      case ToolMessage(content, toolCallId) =>
-        ujson.Obj(
-          "role"         -> "tool",
-          "tool_call_id" -> toolCallId,
-          "content"      -> content
-        )
-    }
 
-    val base = ujson.Obj(
-      "model"       -> config.model,
-      "messages"    -> ujson.Arr.from(messages),
-      "temperature" -> options.temperature,
-      "top_p"       -> options.topP
-    )
-
-    options.maxTokens.foreach(mt => base("max_tokens") = mt)
-    if (options.presencePenalty != 0) base("presence_penalty") = options.presencePenalty
-    if (options.frequencyPenalty != 0) base("frequency_penalty") = options.frequencyPenalty
-
-    if (options.tools.nonEmpty) {
-      val toolRegistry = new ToolRegistry(options.tools)
-      base("tools") = toolRegistry.getOpenAITools()
-    }
-
-    base
-  }
+   
 
   private def parseCompletion(json: ujson.Value): Completion = {
     val choice  = json("choices")(0)
@@ -334,4 +297,65 @@ object DeepSeekClient {
 
   def apply(config: DeepSeekConfig, metrics: MetricsCollector = MetricsCollector.noop): Result[DeepSeekClient] =
     Try(new DeepSeekClient(config, metrics)).toResult
+  
+ 
+
+
+
+  private[provider] def buildRequestBody(
+   model: String,
+   conversation: Conversation,
+   options: CompletionOptions
+  ): ujson.Obj = {
+  val messages = conversation.messages.map {
+    case UserMessage(content) =>
+      ujson.Obj("role" -> "user", "content" -> content)
+
+    case SystemMessage(content) =>
+      ujson.Obj("role" -> "system", "content" -> content)
+
+    case AssistantMessage(content, toolCalls) =>
+      val base = ujson.Obj("role" -> "assistant")
+      content.filter(_.nonEmpty).foreach(c => base("content") = c)
+
+      if (toolCalls.nonEmpty) {
+        base("tool_calls") = ujson.Arr.from(toolCalls.map { tc =>
+          ujson.Obj(
+            "id"   -> tc.id,
+            "type" -> "function",
+            "function" -> ujson.Obj(
+              "name"      -> tc.name,
+              "arguments" -> tc.arguments.render()
+            )
+          )
+        })
+      }
+      base
+
+    case ToolMessage(content, toolCallId) =>
+      ujson.Obj(
+        "role"         -> "tool",
+        "tool_call_id" -> toolCallId,
+        "content"      -> content
+      )
+  }
+
+  val base = ujson.Obj(
+    "model"       -> model,
+    "messages"    -> ujson.Arr.from(messages),
+    "temperature" -> options.temperature,
+    "top_p"       -> options.topP
+  )
+
+  options.maxTokens.foreach(mt => base("max_tokens") = mt)
+  if (options.presencePenalty != 0) base("presence_penalty") = options.presencePenalty
+  if (options.frequencyPenalty != 0) base("frequency_penalty") = options.frequencyPenalty
+
+  if (options.tools.nonEmpty) {
+    val toolRegistry = new ToolRegistry(options.tools)
+    base("tools") = toolRegistry.getOpenAITools()
+  }
+
+  base
+}
 }
