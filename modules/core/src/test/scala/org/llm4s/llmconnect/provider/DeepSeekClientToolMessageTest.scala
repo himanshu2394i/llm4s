@@ -11,7 +11,6 @@ import org.llm4s.llmconnect.model.{
   AssistantMessage,
   ToolCall
 }
-import org.llm4s.metrics.MetricsCollector
 
 /**
  * Tests for DeepSeekClient ToolMessage encoding.
@@ -29,7 +28,6 @@ class DeepSeekClientToolMessageTest extends AnyFlatSpec with Matchers {
   )
 
   "DeepSeekClient" should "encode ToolMessage with correct field order" in {
-    val client = DeepSeekClient(createTestConfig, MetricsCollector.noop).toOption.get
 
     // Create a conversation with a ToolMessage
     val conversation = Conversation(
@@ -52,17 +50,11 @@ class DeepSeekClientToolMessageTest extends AnyFlatSpec with Matchers {
       )
     )
 
-    // Access the private createRequestBody method via reflection to test encoding
-    val method = client.getClass.getDeclaredMethod(
-      "createRequestBody",
-      classOf[Conversation],
-      classOf[CompletionOptions]
+    val requestBody = DeepSeekClient.buildRequestBody(
+      createTestConfig.model,
+      conversation,
+      CompletionOptions()
     )
-    method.setAccessible(true)
-
-    val requestBody = method
-      .invoke(client, conversation, CompletionOptions())
-      .asInstanceOf[ujson.Obj]
 
     // Verify the messages array
     val messages = requestBody("messages").arr
@@ -82,7 +74,6 @@ class DeepSeekClientToolMessageTest extends AnyFlatSpec with Matchers {
   }
 
   it should "handle multiple ToolMessages correctly" in {
-    val client = DeepSeekClient(createTestConfig, MetricsCollector.noop).toOption.get
 
     val conversation = Conversation(
       Seq(
@@ -113,16 +104,11 @@ class DeepSeekClientToolMessageTest extends AnyFlatSpec with Matchers {
       )
     )
 
-    val method = client.getClass.getDeclaredMethod(
-      "createRequestBody",
-      classOf[Conversation],
-      classOf[CompletionOptions]
+    val requestBody = DeepSeekClient.buildRequestBody(
+      createTestConfig.model,
+      conversation,
+      CompletionOptions()
     )
-    method.setAccessible(true)
-
-    val requestBody = method
-      .invoke(client, conversation, CompletionOptions())
-      .asInstanceOf[ujson.Obj]
 
     val messages = requestBody("messages").arr
 
