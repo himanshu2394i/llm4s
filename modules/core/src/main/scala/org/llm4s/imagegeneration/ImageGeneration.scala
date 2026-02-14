@@ -2,7 +2,7 @@ package org.llm4s.imagegeneration
 
 import java.time.Instant
 import java.nio.file.Path
-import org.llm4s.imagegeneration.provider.{ HttpClient, HuggingFaceClient, OpenAIImageClient, StableDiffusionClient }
+import org.llm4s.imagegeneration.provider.{ HttpClient, HuggingFaceClient, OpenAIImageClient, StableDiffusionClient, StabilityImageClient }
 
 import scala.annotation.unused
 import scala.util.Try
@@ -167,6 +167,7 @@ object ImageGenerationProvider {
   case object StableDiffusion extends ImageGenerationProvider
   case object DALLE           extends ImageGenerationProvider
   case object HuggingFace     extends ImageGenerationProvider
+  case object StabilityAI     extends ImageGenerationProvider  
 }
 
 trait ImageGenerationConfig {
@@ -230,6 +231,24 @@ case class OpenAIConfig(
   def provider: ImageGenerationProvider = ImageGenerationProvider.DALLE
   override def toString: String         = s"OpenAIConfig(apiKey=***, model=$model, baseUrl=$baseUrl, timeout=$timeout)"
 }
+
+/**
+ * Configuration for Stability AI image generation.
+ *
+ * @param apiKey Your Stability AI API key. This is required for authentication.
+ * @param model The specific image generation model to use (e.g., "sd3", "sdxl", etc.).
+ * @param timeout Request timeout in milliseconds.
+ */
+
+case class StabilityConfig(
+  apiKey: String,
+  model: String = "sd3",
+  override val timeout: Int = 60000
+) extends ImageGenerationConfig {
+  def provider: ImageGenerationProvider =
+    ImageGenerationProvider.StabilityAI
+}
+
 
 // ===== CLIENT INTERFACE =====
 
@@ -303,10 +322,17 @@ object ImageGeneration {
         val httpClient = HttpClient.create()
         Right(new HuggingFaceClient(hfConfig, httpClient))
       case openAIConfig: OpenAIConfig =>
+<<<<<<< HEAD
         val httpClient = HttpClient.create()
         Right(new OpenAIImageClient(openAIConfig, httpClient))
       case _ =>
         Left(UnsupportedOperation(s"Provider ${config.provider} is not supported."))
+=======
+        new OpenAIImageClient(openAIConfig)
+      case stabilityConfig: StabilityConfig =>
+        val httpClient = HttpClient.createHttpClient(stabilityConfig)
+        new StabilityImageClient(stabilityConfig, httpClient)
+>>>>>>> a79f24c (feat(image-generation): add Stability AI provider with HTTP abstraction and input validation(Part of #500)
     }
 
   /** Convenience method for quick image generation */
