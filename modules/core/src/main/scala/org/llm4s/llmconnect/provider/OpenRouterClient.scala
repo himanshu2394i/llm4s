@@ -111,7 +111,7 @@ class OpenRouterClient(
 
           val sseParser = SSEParser.createStreamingParser()
           val reader    = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))
-          val loopTry = Try {
+          try {
             var line: String = null
             while ({ line = reader.readLine(); line != null }) {
               sseParser.addChunk(line + "\n")
@@ -129,9 +129,11 @@ class OpenRouterClient(
                   }
                 }
             }
+          } finally {
+            Try(reader.close())
+            Try(response.body().close())
           }
-          Try(reader.close()); Try(response.body().close())
-          loopTry.get
+
         }.toEither.left
           .map(_.toLLMError)
 

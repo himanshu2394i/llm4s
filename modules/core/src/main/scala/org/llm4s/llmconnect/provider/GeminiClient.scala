@@ -140,30 +140,31 @@ class GeminiClient(
             val messageId   = UUID.randomUUID().toString
             val reader      = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))
 
-            val processEither = Try {
-              var line: String = null
-              while ({ line = reader.readLine(); line != null }) {
-                val trimmed = line.trim
-                // SSE format: lines starting with "data: " contain JSON
-                if (trimmed.startsWith("data: ")) {
-                  val jsonStr = trimmed.stripPrefix("data: ").trim
-                  if (jsonStr.nonEmpty) {
-                    Try(ujson.read(jsonStr)).foreach { json =>
-                      parseStreamChunk(json, messageId).foreach { chunk =>
-                        accumulator.addChunk(chunk)
-                        onChunk(chunk)
+            Try {
+              try {
+                var line: String = null
+                while ({ line = reader.readLine(); line != null }) {
+                  val trimmed = line.trim
+                  // SSE format: lines starting with "data: " contain JSON
+                  if (trimmed.startsWith("data: ")) {
+                    val jsonStr = trimmed.stripPrefix("data: ").trim
+                    if (jsonStr.nonEmpty) {
+                      Try(ujson.read(jsonStr)).foreach { json =>
+                        parseStreamChunk(json, messageId).foreach { chunk =>
+                          accumulator.addChunk(chunk)
+                          onChunk(chunk)
+                        }
                       }
                     }
                   }
                 }
+
+                // Close resources INSIDE Try block
+              } finally {
+                Try(reader.close())
+                Try(response.body().close())
               }
-            }.toEither
-
-            // Close resources
-            Try(reader.close())
-            Try(response.body().close())
-
-            processEither.left
+            }.toEither.left
               .map(_.toLLMError)
               .flatMap(_ =>
                 accumulator.toCompletion.map { c =>
