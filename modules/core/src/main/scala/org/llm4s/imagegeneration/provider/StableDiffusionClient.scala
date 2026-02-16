@@ -1,6 +1,7 @@
 package org.llm4s.imagegeneration.provider
 
 import org.llm4s.imagegeneration._
+import org.llm4s.http.HttpResponse
 import org.slf4j.LoggerFactory
 import upickle.default._
 import java.nio.file.{ Files, Path }
@@ -183,7 +184,7 @@ class StableDiffusionClient(config: StableDiffusionConfig, httpClient: HttpClien
 
   private def makeImg2ImgRequest(
     payload: StableDiffusionImg2ImgPayload
-  ): Either[ImageGenerationError, requests.Response] = {
+  ): Either[ImageGenerationError, HttpResponse] = {
     val url = s"${config.baseUrl}/sdapi/v1/img2img"
     val headers = Map(
       "Content-Type" -> "application/json"
@@ -238,7 +239,7 @@ class StableDiffusionClient(config: StableDiffusionConfig, httpClient: HttpClien
     writeJs(payload)
   }
 
-  private def makeHttpRequest(payload: ujson.Value): Either[ImageGenerationError, requests.Response] = {
+  private def makeHttpRequest(payload: ujson.Value): Either[ImageGenerationError, HttpResponse] = {
     val url = s"${config.baseUrl}/sdapi/v1/txt2img"
     val headers = Map(
       "Content-Type" -> "application/json"
@@ -260,7 +261,7 @@ class StableDiffusionClient(config: StableDiffusionConfig, httpClient: HttpClien
   }
 
   private def parseResponse(
-    response: requests.Response,
+    response: HttpResponse,
     prompt: String,
     options: ImageGenerationOptions
   ): Either[ImageGenerationError, Seq[GeneratedImage]] = {
@@ -270,13 +271,13 @@ class StableDiffusionClient(config: StableDiffusionConfig, httpClient: HttpClien
       case 401 => return Left(AuthenticationError("API request failed with status 401: Unauthorized"))
       case 429 => return Left(RateLimitError("API request failed with status 429: Rate limit"))
       case _ =>
-        val errorMsg = s"API request failed with status ${response.statusCode}: ${response.text()}"
+        val errorMsg = s"API request failed with status ${response.statusCode}: ${response.body}"
         logger.error(errorMsg)
         return Left(ServiceError(errorMsg, response.statusCode))
     }
 
     Try {
-      val responseJson = read[ujson.Value](response.text())
+      val responseJson = read[ujson.Value](response.body)
       val images       = responseJson("images").arr
       images
     }.toEither.left

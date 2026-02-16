@@ -2,11 +2,11 @@ package org.llm4s.imagegeneration.clients
 
 import org.llm4s.imagegeneration._
 import org.llm4s.imagegeneration.provider._
+import org.llm4s.http.HttpResponse
 import org.scalamock.scalatest.MockFactory
 import org.scalatest.EitherValues
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
-import requests.Response
 
 import org.scalatest.concurrent.ScalaFutures
 import scala.util.Success
@@ -25,14 +25,8 @@ class ImageGenerationClientsTest
   val mockResponseBytes = """{"data":[{"b64_json":"base64data","url":null}],"created":1234567890}""".getBytes
 
   // Response helpers
-  def createResponse(statusCode: Int, body: String): Response = Response(
-    url = "http://test",
-    statusCode = statusCode,
-    statusMessage = if (statusCode == 200) "OK" else "Error",
-    data = new geny.Bytes(body.getBytes),
-    headers = Map.empty,
-    history = None
-  )
+  def createResponse(statusCode: Int, body: String): HttpResponse =
+    HttpResponse(statusCode = statusCode, body = body)
 
   val mockSuccessResponse = createResponse(200, """{"data":[{"b64_json":"base64data"}],"created":1234567890}""")
   val mockErrorResponse   = createResponse(400, """{"error":{"message":"Invalid request"}}""")
@@ -433,7 +427,7 @@ class ImageGenerationClientsTest
   // ==========================================
 
   test("HttpClient should return failure on exception") {
-    val client = new SimpleHttpClient()
+    val client = HttpClient.create()
     val result = client.post("http://0.0.0.0:0/invalid", Map.empty, "", 100)
     result.isFailure shouldBe true
   }

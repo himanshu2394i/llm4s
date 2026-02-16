@@ -1,6 +1,7 @@
 package org.llm4s.imagegeneration.provider
 
 import org.llm4s.imagegeneration._
+import org.llm4s.http.HttpResponse
 
 import java.time.Instant
 import java.nio.file.Path
@@ -77,8 +78,8 @@ class HuggingFaceClient(config: HuggingFaceConfig, httpClient: HttpClient) exten
    * @return Either an `ImageGenerationError` in case of a failure or
    *         the resulting Base64-encoded string on success.
    */
-  def convertToBase64(response: requests.Response): Either[ImageGenerationError, String] = Try {
-    val imageData = response.bytes
+  def convertToBase64(response: HttpResponse): Either[ImageGenerationError, String] = Try {
+    val imageData = response.body.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)
     Base64.getEncoder.encodeToString(imageData)
   }.toEither.left.map(exception => ServiceError(exception.getMessage, 500))
 
@@ -250,7 +251,7 @@ class HuggingFaceClient(config: HuggingFaceConfig, httpClient: HttpClient) exten
    * @param payload The JSON payload to send with the HTTP request.
    * @return Either an ImageGenerationError if the request fails or a successful `requests.Response` object.
    */
-  def makeHttpRequest(payload: String): Either[ImageGenerationError, requests.Response] = {
+  def makeHttpRequest(payload: String): Either[ImageGenerationError, HttpResponse] = {
     val url = s"https://api-inference.huggingface.co/models/${config.model}"
     val headers = Map(
       "Authorization" -> s"Bearer ${config.apiKey}",
@@ -267,7 +268,7 @@ class HuggingFaceClient(config: HuggingFaceConfig, httpClient: HttpClient) exten
           case 200 => Right(response)
           case 401 => Left(AuthenticationError("Unauthorized"))
           case 429 => Left(RateLimitError("Rate limit"))
-          case _   => Left(ServiceError(response.text(), 500))
+          case _   => Left(ServiceError(response.body, 500))
         }
       }
   }

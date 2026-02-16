@@ -22,7 +22,6 @@ object Versions {
   val azureOpenAI = "1.0.0-beta.16"
   val anthropic   = "2.11.1"
   val jtokkit     = "1.1.0"
-  val requests    = "0.9.0"
   val websocket   = "1.6.0"
   val ujson       = "4.2.1"
   val pdfbox      = "3.0.5"
@@ -63,7 +62,6 @@ object Deps {
   val azureOpenAI = "com.azure"     % "azure-ai-openai" % Versions.azureOpenAI
   val anthropic   = "com.anthropic" % "anthropic-java"  % Versions.anthropic
   val jtokkit     = "com.knuddels"  % "jtokkit"         % Versions.jtokkit
-  val requests    = "com.lihaoyi"  %% "requests"        % Versions.requests
   val websocket   = "org.java-websocket" % "Java-WebSocket" % Versions.websocket
   val ujson       = "com.lihaoyi"  %% "ujson"           % Versions.ujson
   val pdfbox      = "org.apache.pdfbox" % "pdfbox"      % Versions.pdfbox
