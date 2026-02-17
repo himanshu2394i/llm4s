@@ -106,7 +106,9 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
         MultipartPart.FilePart("image", imagePath, imagePath.getFileName.toString),
         MultipartPart.TextField("prompt", prompt),
         MultipartPart.TextField("n", options.n.toString),
-        MultipartPart.TextField("response_format", options.responseFormat.getOrElse("b64_json"))
+        options.responseFormat.fold(
+          MultipartPart.TextField("response_format", "b64_json")
+        )(rf => MultipartPart.TextField("response_format", rf))
       )
 
       // Always use dall-e-2 for edits as it's the only supported model for this endpoint
@@ -131,9 +133,9 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
         if (response.statusCode == 200) {
           // reuse parseResponse logic but map ImageEditOptions to ImageGenerationOptions for compatibility
           val genOptions = ImageGenerationOptions(
-            size = options.size.getOrElse(ImageSize.Square1024), // API default
-            format = ImageFormat.PNG,                            // Default
-            responseFormat = options.responseFormat,             // Pass through
+            size = options.size.fold(ImageSize.Square1024)(s => s), // API default
+            format = ImageFormat.PNG,                               // Default
+            responseFormat = options.responseFormat,                // Pass through
           )
           parseResponse(response, prompt, genOptions)
         } else {
@@ -286,7 +288,7 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
       "prompt"          -> prompt,
       "n"               -> count,
       "size"            -> sizeToApiFormat(options.size),
-      "response_format" -> ujson.Str(options.responseFormat.getOrElse("b64_json"))
+      "response_format" -> options.responseFormat.fold(ujson.Str("b64_json"))(rf => ujson.Str(rf))
     )
 
     // Optional parameters

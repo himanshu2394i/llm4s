@@ -25,17 +25,21 @@ class QdrantVectorStoreHttpSpec extends AnyFlatSpec with Matchers with MockFacto
   private def httpResponse(statusCode: Int, body: String): HttpResponse =
     HttpResponse(statusCode, body, Map.empty)
 
+  private val testConfig = QdrantVectorStore.Config(
+    host = "localhost",
+    port = 6333,
+    collectionName = testCollection
+  )
+
   // Helper to create a QdrantVectorStore with mocked HTTP client
   private def createStore(mockClient: Llm4sHttpClient): QdrantVectorStore = {
     // Mock the initial collection check in ensureCollection()
     (mockClient.get _).when(collectionsUrl, *, *, *).returns(httpResponse(404, "Not found"))
 
-    // Use reflection to create QdrantVectorStore with mocked client
-    val constructors = classOf[QdrantVectorStore].getDeclaredConstructors
-    constructors should not be empty
-    val constructor = constructors(0)
-    constructor.setAccessible(true)
-    constructor.newInstance(testUrl, testCollection, None, mockClient).asInstanceOf[QdrantVectorStore]
+    QdrantVectorStore(testConfig, mockClient) match {
+      case Right(store) => store
+      case Left(err)    => fail(s"Failed to create store: ${err.formatted}")
+    }
   }
 
   // ============================================================
@@ -510,11 +514,10 @@ class QdrantVectorStoreHttpSpec extends AnyFlatSpec with Matchers with MockFacto
     (throwingClient.get _).when(collectionsUrl, *, *, *).returns(httpResponse(404, "Not found"))
     (throwingClient.delete _).when(collectionsUrl, *, *).throws(new RuntimeException("Network timeout"))
 
-    val constructors = classOf[QdrantVectorStore].getDeclaredConstructors
-    constructors should not be empty
-    val constructor = constructors(0)
-    constructor.setAccessible(true)
-    val store = constructor.newInstance(testUrl, testCollection, None, throwingClient).asInstanceOf[QdrantVectorStore]
+    val store = QdrantVectorStore(testConfig, throwingClient) match {
+      case Right(s)  => s
+      case Left(err) => fail(s"Failed to create store: ${err.formatted}")
+    }
 
     val result = store.clear()
     result.isLeft shouldBe true
