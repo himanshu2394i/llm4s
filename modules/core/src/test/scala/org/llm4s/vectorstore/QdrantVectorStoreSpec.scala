@@ -141,19 +141,26 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       val queryVector = Array(1.0f, 0.0f, 0.0f)
       val results     = store.search(queryVector, topK = 3)
 
-      results.isRight shouldBe true
-      val scored = results.toOption.get
-      scored.size shouldBe 3
+      results match {
+        case Right(scored) =>
+          scored.size shouldBe 3
 
-      // Most similar should be "similar-1" (exact match)
-      scored.head.record.id shouldBe "similar-1"
-      scored.head.score should be > 0.9
+          // Most similar should be "similar-1" (exact match)
+          scored.headOption match {
+            case Some(r) =>
+              r.record.id shouldBe "similar-1"
+              r.score should be > 0.9
+            case None => fail("Expected at least one result but scored list was empty")
+          }
 
-      // Second should be "similar-2" (close)
-      scored(1).record.id shouldBe "similar-2"
+          // Second should be "similar-2" (close)
+          scored(1).record.id shouldBe "similar-2"
 
-      // "similar-4" (opposite direction) should not be in top 3
-      scored.map(_.record.id) should not contain "similar-4"
+          // "similar-4" (opposite direction) should not be in top 3
+          scored.map(_.record.id) should not contain "similar-4"
+
+        case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+      }
     }
 
     "filter records by metadata" in skipIfNoQdrant {
@@ -167,13 +174,20 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       // Filter by type
       val docFilter = MetadataFilter.Equals("type", "document")
       val docs      = store.list(filter = Some(docFilter))
-      docs.toOption.get.size shouldBe 2
+      docs.fold(err => fail(s"Expected Right but got Left: ${err.formatted}"), d => d.size shouldBe 2)
 
       // Filter by language
       val enFilter = MetadataFilter.Equals("lang", "en")
       val enDocs   = store.list(filter = Some(enFilter))
-      enDocs.toOption.get.size shouldBe 1
-      enDocs.toOption.get.head.id shouldBe "doc-1"
+      enDocs match {
+        case Right(records) =>
+          records.size shouldBe 1
+          records.headOption match {
+            case Some(r) => r.id shouldBe "doc-1"
+            case None    => fail("Expected one record but list was empty")
+          }
+        case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+      }
     }
 
     "combine filters with AND/OR" in skipIfNoQdrant {
@@ -187,13 +201,20 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       // AND filter
       val andFilter = MetadataFilter.Equals("a", "1").and(MetadataFilter.Equals("b", "x"))
       val andResult = store.list(filter = Some(andFilter))
-      andResult.toOption.get.size shouldBe 1
-      andResult.toOption.get.head.id shouldBe "r1"
+      andResult match {
+        case Right(records) =>
+          records.size shouldBe 1
+          records.headOption match {
+            case Some(r) => r.id shouldBe "r1"
+            case None    => fail("Expected one record but list was empty")
+          }
+        case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+      }
 
       // OR filter
       val orFilter = MetadataFilter.Equals("a", "2").or(MetadataFilter.Equals("b", "y"))
       val orResult = store.list(filter = Some(orFilter))
-      orResult.toOption.get.size shouldBe 2
+      orResult.fold(err => fail(s"Expected Right but got Left: ${err.formatted}"), r => r.size shouldBe 2)
     }
 
     "return correct statistics" in skipIfNoQdrant {
@@ -206,9 +227,12 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       store.upsertBatch(records) shouldBe Right(())
 
       val stats = store.stats()
-      stats.isRight shouldBe true
-      stats.toOption.get.totalRecords shouldBe 3
-      stats.toOption.get.dimensions should contain(3)
+      stats match {
+        case Right(s) =>
+          s.totalRecords shouldBe 3
+          s.dimensions should contain(3)
+        case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+      }
     }
 
     "paginate results with list" in skipIfNoQdrant {
@@ -216,15 +240,17 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       store.upsertBatch(records) shouldBe Right(())
 
       val page1 = store.list(limit = 5, offset = 0)
-      page1.toOption.get.size shouldBe 5
-
       val page2 = store.list(limit = 5, offset = 5)
-      page2.toOption.get.size shouldBe 5
 
       // Ensure different pages have different records
-      val ids1 = page1.toOption.get.map(_.id).toSet
-      val ids2 = page2.toOption.get.map(_.id).toSet
-      (ids1.intersect(ids2)) shouldBe empty
+      (page1, page2) match {
+        case (Right(p1), Right(p2)) =>
+          p1.size shouldBe 5
+          p2.size shouldBe 5
+          p1.map(_.id).toSet.intersect(p2.map(_.id).toSet) shouldBe empty
+        case (Left(err), _) => fail(s"page1 failed: ${err.formatted}")
+        case (_, Left(err)) => fail(s"page2 failed: ${err.formatted}")
+      }
     }
 
     "search with metadata filter" in skipIfNoQdrant {
@@ -238,9 +264,12 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       val filter  = Some(MetadataFilter.Equals("cat", "a"))
       val results = store.search(Array(1.0f, 0.0f), topK = 10, filter = filter)
 
-      results.isRight shouldBe true
-      results.toOption.get.size shouldBe 2
-      results.toOption.get.map(_.record.id).toSet shouldBe Set("f1", "f3")
+      results match {
+        case Right(scored) =>
+          scored.size shouldBe 2
+          scored.map(_.record.id).toSet shouldBe Set("f1", "f3")
+        case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+      }
     }
 
     "retrieve multiple records by IDs with getBatch" in skipIfNoQdrant {
@@ -248,9 +277,12 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       store.upsertBatch(records) shouldBe Right(())
 
       val result = store.getBatch(Seq("batch-1", "batch-3", "batch-5"))
-      result.isRight shouldBe true
-      result.toOption.get.size shouldBe 3
-      result.toOption.get.map(_.id).toSet shouldBe Set("batch-1", "batch-3", "batch-5")
+      result match {
+        case Right(records) =>
+          records.size shouldBe 3
+          records.map(_.id).toSet shouldBe Set("batch-1", "batch-3", "batch-5")
+        case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+      }
     }
 
     "return empty sequence for getBatch with empty IDs" in skipIfNoQdrant {
@@ -259,8 +291,7 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
 
     "return empty sequence for getBatch with non-existent IDs" in skipIfNoQdrant {
       val result = store.getBatch(Seq("fake-1", "fake-2", "fake-3"))
-      result.isRight shouldBe true
-      result.toOption.get shouldBe empty
+      result.fold(err => fail(s"Expected Right but got Left: ${err.formatted}"), r => r shouldBe empty)
     }
 
     "getBatch should handle mix of existent and non-existent IDs" in skipIfNoQdrant {
@@ -271,10 +302,13 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       store.upsertBatch(records) shouldBe Right(())
 
       val result = store.getBatch(Seq("exists-1", "fake", "exists-2"))
-      result.isRight shouldBe true
       // Should return only the existing records
-      result.toOption.get.size shouldBe 2
-      result.toOption.get.map(_.id).toSet shouldBe Set("exists-1", "exists-2")
+      result match {
+        case Right(records) =>
+          records.size shouldBe 2
+          records.map(_.id).toSet shouldBe Set("exists-1", "exists-2")
+        case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+      }
     }
 
     "delete records by ID prefix with deleteByPrefix" in skipIfNoQdrant {
@@ -370,8 +404,8 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       val deleted = store.deleteByFilter(filter)
 
       // Should delete r2 (high+done), r3 (low+not done), r4 (low+done)
-      deleted.toOption.get should be >= 3L
-      store.count().toOption.get should be <= 1L
+      deleted.fold(err => fail(s"deleteByFilter failed: ${err.formatted}"), d => d should be >= 3L)
+      store.count().fold(err => fail(s"count failed: ${err.formatted}"), c => c should be <= 1L)
     }
 
     "count records with metadata filter" in skipIfNoQdrant {
@@ -435,8 +469,10 @@ class QdrantVectorStoreSpec extends AnyWordSpec with Matchers with BeforeAndAfte
       )
 
       val result = QdrantVectorStore(config)
-      result.isRight shouldBe true
-      result.toOption.get.close()
+      result.fold(
+        err => fail(s"Expected Right but got Left: ${err.formatted}"),
+        store => store.close()
+      )
     }
   }
 }

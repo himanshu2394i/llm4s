@@ -112,8 +112,10 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
 
       val result = client.post("https://api.example.com", Map.empty, "{}", 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get shouldBe a[java.net.http.HttpTimeoutException]
+      result match {
+        case Failure(e) => e shouldBe a[java.net.http.HttpTimeoutException]
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
 
     "return Failure on connection exception" in {
@@ -124,8 +126,10 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
 
       val result = client.post("https://api.example.com", Map.empty, "{}", 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get shouldBe a[java.net.ConnectException]
+      result match {
+        case Failure(e) => e shouldBe a[java.net.ConnectException]
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
 
     "return Failure on unknown host" in {
@@ -136,8 +140,10 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
 
       val result = client.post("https://unknown.host", Map.empty, "{}", 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get shouldBe a[java.net.UnknownHostException]
+      result match {
+        case Failure(e) => e shouldBe a[java.net.UnknownHostException]
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
 
     "handle empty headers" in {
@@ -225,8 +231,10 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
 
       val result = client.postBytes("https://api.example.com", Map.empty, Array[Byte](1, 2, 3), 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get shouldBe a[java.io.IOException]
+      result match {
+        case Failure(e) => e shouldBe a[java.io.IOException]
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
   }
 
@@ -321,8 +329,10 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
       val parts  = Seq(MultipartPart.TextField("key", "value"))
       val result = client.postMultipart("https://api.example.com", Map.empty, parts, 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get.getMessage should include("Multipart upload failed")
+      result match {
+        case Failure(e) => e.getMessage should include("Multipart upload failed")
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
   }
 
@@ -375,8 +385,10 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
 
       val result = client.get("https://api.example.com", Map.empty, 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get shouldBe a[java.net.SocketTimeoutException]
+      result match {
+        case Failure(e) => e shouldBe a[java.net.SocketTimeoutException]
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
   }
 
@@ -390,9 +402,12 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
 
       val result = client.post("https://api.example.com", Map.empty, "{}", 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get shouldBe a[RuntimeException]
-      result.failed.get.getMessage shouldBe "Unexpected error"
+      result match {
+        case Failure(e) =>
+          e shouldBe a[RuntimeException]
+          e.getMessage shouldBe "Unexpected error"
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
 
     "not throw exceptions directly" in {
@@ -416,8 +431,10 @@ class HttpClientSpec extends AnyWordSpec with Matchers with MockFactory {
 
       val result = client.postBytes("https://api.example.com", Map.empty, Array.empty, 10000)
 
-      result shouldBe a[Failure[_]]
-      result.failed.get shouldBe originalException
+      result match {
+        case Failure(e) => e shouldBe originalException
+        case Success(v) => fail(s"Expected Failure but got Success($v)")
+      }
     }
   }
 

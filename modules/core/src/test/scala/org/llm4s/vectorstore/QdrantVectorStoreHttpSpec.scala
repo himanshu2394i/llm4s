@@ -31,7 +31,9 @@ class QdrantVectorStoreHttpSpec extends AnyFlatSpec with Matchers with MockFacto
     (mockClient.get _).when(collectionsUrl, *, *, *).returns(httpResponse(404, "Not found"))
 
     // Use reflection to create QdrantVectorStore with mocked client
-    val constructor = classOf[QdrantVectorStore].getDeclaredConstructors.head
+    val constructors = classOf[QdrantVectorStore].getDeclaredConstructors
+    constructors should not be empty
+    val constructor = constructors(0)
     constructor.setAccessible(true)
     constructor.newInstance(testUrl, testCollection, None, mockClient).asInstanceOf[QdrantVectorStore]
   }
@@ -154,9 +156,12 @@ class QdrantVectorStoreHttpSpec extends AnyFlatSpec with Matchers with MockFacto
     val store = createStore(mockClient)
 
     val result = store.stats()
-    result.isRight shouldBe true
-    result.toOption.get.totalRecords shouldBe 42
-    result.toOption.get.dimensions shouldBe Set(3)
+    result match {
+      case Right(stats) =>
+        stats.totalRecords shouldBe 42
+        stats.dimensions shouldBe Set(3)
+      case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+    }
   }
 
   // ============================================================
@@ -183,9 +188,15 @@ class QdrantVectorStoreHttpSpec extends AnyFlatSpec with Matchers with MockFacto
     (mockClient.post _).when(s"$pointsUrl/search", *, *, *).returns(httpResponse(200, searchResponseJson))
 
     val result = store.search(Array(0.1f, 0.2f, 0.3f), topK = 1)
-    result.isRight shouldBe true
-    result.toOption.get.size shouldBe 1
-    result.toOption.get.head.score shouldBe 0.95
+    result match {
+      case Right(scored) =>
+        scored should have size 1
+        scored.headOption match {
+          case Some(r) => r.score shouldBe 0.95
+          case None    => fail("Expected at least one result but got empty list")
+        }
+      case Left(err) => fail(s"Expected Right but got Left: ${err.formatted}")
+    }
   }
 
   it should "handle 400 Bad Request error" in {
@@ -278,8 +289,10 @@ class QdrantVectorStoreHttpSpec extends AnyFlatSpec with Matchers with MockFacto
     (mockClient.post _).when(pointsUrl, *, *, *).returns(httpResponse(200, getBatchResponseJson))
 
     val result = store.getBatch(Seq("test-1", "test-2"))
-    result.isRight shouldBe true
-    result.toOption.get.size shouldBe 2
+    result match {
+      case Right(records) => records should have size 2
+      case Left(err)      => fail(s"Expected Right but got Left: ${err.formatted}")
+    }
   }
 
   // ============================================================
@@ -497,7 +510,9 @@ class QdrantVectorStoreHttpSpec extends AnyFlatSpec with Matchers with MockFacto
     (throwingClient.get _).when(collectionsUrl, *, *, *).returns(httpResponse(404, "Not found"))
     (throwingClient.delete _).when(collectionsUrl, *, *).throws(new RuntimeException("Network timeout"))
 
-    val constructor = classOf[QdrantVectorStore].getDeclaredConstructors.head
+    val constructors = classOf[QdrantVectorStore].getDeclaredConstructors
+    constructors should not be empty
+    val constructor = constructors(0)
     constructor.setAccessible(true)
     val store = constructor.newInstance(testUrl, testCollection, None, throwingClient).asInstanceOf[QdrantVectorStore]
 
