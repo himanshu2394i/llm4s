@@ -1,6 +1,7 @@
 package org.llm4s.imagegeneration.provider
 
 import org.llm4s.imagegeneration._
+import org.llm4s.http.{ HttpResponse, MultipartPart }
 import org.slf4j.LoggerFactory
 import ujson._
 import java.time.Instant
@@ -101,25 +102,27 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
     } else {
       val editUrl = s"${config.baseUrl}/images/edits"
 
-      val parts = scala.collection.mutable.ListBuffer[requests.MultiItem](
-        requests.MultiItem("image", imagePath, filename = imagePath.getFileName.toString),
-        requests.MultiItem("prompt", prompt),
-        requests.MultiItem("n", options.n.toString),
-        requests.MultiItem("response_format", options.responseFormat.getOrElse("b64_json"): String)
+      val parts = scala.collection.mutable.ListBuffer[MultipartPart](
+        MultipartPart.FilePart("image", imagePath, imagePath.getFileName.toString),
+        MultipartPart.TextField("prompt", prompt),
+        MultipartPart.TextField("n", options.n.toString),
+        options.responseFormat.fold(
+          MultipartPart.TextField("response_format", "b64_json")
+        )(rf => MultipartPart.TextField("response_format", rf))
       )
 
       // Always use dall-e-2 for edits as it's the only supported model for this endpoint
-      parts += requests.MultiItem("model", "dall-e-2")
+      parts += MultipartPart.TextField("model", "dall-e-2")
 
-      maskPath.foreach(path => parts += requests.MultiItem("mask", path, filename = path.getFileName.toString))
-      options.size.foreach(s => parts += requests.MultiItem("size", sizeToApiFormat(s): String))
-      options.user.foreach(u => parts += requests.MultiItem("user", u: String))
+      maskPath.foreach(path => parts += MultipartPart.FilePart("mask", path, path.getFileName.toString))
+      options.size.foreach(s => parts += MultipartPart.TextField("size", sizeToApiFormat(s)))
+      options.user.foreach(u => parts += MultipartPart.TextField("user", u))
 
       val result = httpClient
         .postMultipart(
           editUrl,
           headers = Map("Authorization" -> s"Bearer ${config.apiKey}"),
-          data = requests.MultiPart(parts.toSeq: _*),
+          data = parts.toSeq,
           timeout = config.timeout
         )
         .toEither
@@ -130,9 +133,9 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
         if (response.statusCode == 200) {
           // reuse parseResponse logic but map ImageEditOptions to ImageGenerationOptions for compatibility
           val genOptions = ImageGenerationOptions(
-            size = options.size.getOrElse(ImageSize.Square1024), // API default
-            format = ImageFormat.PNG,                            // Default
-            responseFormat = options.responseFormat,             // Pass through
+            size = options.size.fold[ImageSize](ImageSize.Square1024)(s => s), // API default
+            format = ImageFormat.PNG,                                          // Default
+            responseFormat = options.responseFormat,                           // Pass through
           )
           parseResponse(response, prompt, genOptions)
         } else {
@@ -272,7 +275,7 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
     prompt: String,
     count: Int,
     options: ImageGenerationOptions
-  ): Either[ImageGenerationError, requests.Response] = {
+  ): Either[ImageGenerationError, HttpResponse] = {
     // Deprecation warning
     if (config.model.startsWith("dall-e")) {
       logger.warn(
@@ -285,7 +288,7 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
       "prompt"          -> prompt,
       "n"               -> count,
       "size"            -> sizeToApiFormat(options.size),
-      "response_format" -> ujson.Str(options.responseFormat.getOrElse("b64_json"))
+      "response_format" -> options.responseFormat.fold(ujson.Str("b64_json"))(rf => ujson.Str(rf))
     )
 
     // Optional parameters
@@ -325,12 +328,14 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
   /**
    * Handle error responses from the API.
    */
-  private def handleErrorResponse(response: requests.Response): Either[ImageGenerationError, requests.Response] = {
+  private def handleErrorResponse(response: HttpResponse): Either[ImageGenerationError, HttpResponse] = {
     val errorMessage = Try {
-      val json = read(response.text())
+      val json = read(response.body)
       json("error")("message").str
-    }
-      .getOrElse(response.text())
+    }.toEither.fold(
+      _ => response.body,
+      identity
+    )
 
     response.statusCode match {
       case 401  => Left(AuthenticationError("Invalid API key"))
@@ -344,12 +349,12 @@ class OpenAIImageClient(config: OpenAIConfig, httpClient: HttpClient) extends Im
    * Parse the API response into GeneratedImage objects.
    */
   private def parseResponse(
-    response: requests.Response,
+    response: HttpResponse,
     prompt: String,
     options: ImageGenerationOptions
   ): Either[ImageGenerationError, Seq[GeneratedImage]] =
     Try {
-      val json       = read(response.text())
+      val json       = read(response.body)
       val imagesData = json("data").arr
 
       val images = imagesData.map { imageData =>

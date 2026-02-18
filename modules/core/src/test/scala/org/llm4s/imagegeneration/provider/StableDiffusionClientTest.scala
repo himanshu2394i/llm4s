@@ -4,56 +4,54 @@ import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.concurrent.ScalaFutures
 import org.llm4s.imagegeneration._
+import org.llm4s.http.{ HttpResponse, MultipartPart }
 import java.nio.file.{ Files, Paths }
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{ Try, Success, Failure }
-import requests.Response
-import java.nio.charset.StandardCharsets
 
 class StableDiffusionClientTest extends AnyFunSuite with Matchers with ScalaFutures {
 
   val config = StableDiffusionConfig("http://localhost:7860")
 
   // Mock HttpClient to control responses
-  class MockHttpClient(response: Try[Response]) extends HttpClient {
+  class MockHttpClient(response: Try[HttpResponse]) extends HttpClient {
     var lastUrl: String                  = _
     var lastHeaders: Map[String, String] = _
     var lastData: String                 = _
 
-    override def post(url: String, headers: Map[String, String], data: String, timeout: Int): Try[Response] = {
+    override def post(url: String, headers: Map[String, String], data: String, timeout: Int): Try[HttpResponse] = {
       lastUrl = url
       lastHeaders = headers
       lastData = data
       response
     }
 
-    override def postBytes(url: String, headers: Map[String, String], data: Array[Byte], timeout: Int): Try[Response] =
-      ???
+    override def postBytes(
+      url: String,
+      headers: Map[String, String],
+      data: Array[Byte],
+      timeout: Int
+    ): Try[HttpResponse] = ???
 
     override def postMultipart(
       url: String,
       headers: Map[String, String],
-      data: requests.MultiPart,
+      data: Seq[MultipartPart],
       timeout: Int
-    ): Try[Response] = ???
+    ): Try[HttpResponse] = ???
 
-    override def get(url: String, headers: Map[String, String], timeout: Int): Try[Response] = {
+    override def get(url: String, headers: Map[String, String], timeout: Int): Try[HttpResponse] = {
       lastUrl = url
       lastHeaders = headers
       response
     }
+
+    override def postRaw(url: String, headers: Map[String, String], data: String, timeout: Int) = ???
   }
 
   // Helper to create a dummy response
-  def createResponse(statusCode: Int, json: String): Response =
-    Response(
-      url = "http://localhost",
-      statusCode = statusCode,
-      statusMessage = "OK",
-      headers = Map.empty,
-      data = new geny.Bytes(json.getBytes(StandardCharsets.UTF_8)),
-      history = None
-    )
+  def createResponse(statusCode: Int, body: String): HttpResponse =
+    HttpResponse(statusCode = statusCode, body = body)
 
   test("health check returns Healthy when service responds with 200") {
     val mockResponse = createResponse(200, "{}")
